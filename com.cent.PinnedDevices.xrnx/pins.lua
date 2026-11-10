@@ -196,7 +196,12 @@ function M.unpin(pin)
 end
 
 function M.unpin_param(pin, param_index)
-  if pin.mode ~= "params" then return end
+  if pin.mode == "device" then
+    local track, device = M.resolve(pin)
+    if not track or not device.parameters[param_index] then return end
+    for i = 1, #device.parameters do pin.params[i] = i end
+    pin.mode = "params"
+  end
   for i, idx in ipairs(pin.params) do
     if idx == param_index then
       pin.friction[param_index] = nil

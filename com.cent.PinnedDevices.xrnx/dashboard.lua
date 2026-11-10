@@ -244,13 +244,11 @@ local function build_param_row(cvb, pin, i, p)
     cvb:text { text = p.name, width = NAME_WIDTH, tooltip = p.name },
     cvb:stack { slider, track }, value_text,
     cvb:text { text = "Friction" }, mini, box,
-  }
-  if pin.mode == "params" then
-    views[#views + 1] = cvb:button {
+    cvb:button {
       text = "×", width = 18, tooltip = "Unpin this parameter",
       notifier = function() pins.unpin_param(pin, i) end,
-    }
-  end
+    },
+  }
   return cvb:row { spacing = VB.DEFAULT_CONTROL_SPACING, views = views }
 end
 
