@@ -12,6 +12,7 @@
 local M = {}
 
 local pins = {}
+local panels = {}
 local listener = nil
 
 -- song-level notifier bookkeeping
@@ -68,11 +69,16 @@ function M.save()
     local f = line:match("^([^\t]*)\t")
     if f and f ~= file then out[#out + 1] = line end
   end
+  for _, panel in ipairs(panels) do
+    out[#out + 1] = table.concat({file, "panel", panel.id, panel.color, panel.name}, "\t")
+  end
   for _, p in ipairs(pins) do
-    out[#out + 1] = table.concat({
+    local fields = {
       file, tostring(p.track_index), tostring(p.device_index),
       p.device_name, p.mode, table.concat(p.params, ","), encode_friction(p),
-    }, "\t")
+    }
+    if p.panel then fields[#fields + 1] = p.panel.id end
+    out[#out + 1] = table.concat(fields, "\t")
   end
   prefs.pins.value = table.concat(out, "\n")
 end
@@ -80,12 +86,19 @@ end
 -- Appends pins stored for `file`; silent (no save, no listener).
 function M.restore(file)
   if file == nil or file == "" then return end
+  local by_id = {}
   for line in prefs.pins.value:gmatch("[^\n]+") do
-    local f, t, d, name, mode, plist, friction =
-      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)$")
+    local project, id, color, title = line:match("^([^\t]+)\tpanel\t(%d+)\t(%x%x%x%x%x%x)\t([^\t]+)$")
+    if project == file then
+      local panel = {id = tonumber(id), name = title, color = color}
+      by_id[id] = panel
+      panels[#panels + 1] = panel
+    end
+    local f, t, d, name, mode, plist, friction, panel_id =
+      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)\t?(%d*)$")
     if f == file then
       local ti, di = tonumber(t), tonumber(d)
-      if ti and di and name ~= "" and (mode == "device" or mode == "params") then
+      if (panel_id == "" or by_id[panel_id]) and ti and di and name ~= "" and (mode == "device" or mode == "params") then
         local params = {}
         for n in plist:gmatch("[^,]+") do
           local idx = tonumber(n)
@@ -96,7 +109,7 @@ function M.restore(file)
           pins[#pins + 1] = {
             track_index = ti, device_index = di,
             mode = mode, params = params, device_name = name,
-            friction = decode_friction(friction),
+            friction = decode_friction(friction), panel = by_id[panel_id],
           }
         end
       end
@@ -120,9 +133,9 @@ local function notify(resync)
   if listener then listener() end
 end
 
-local function find(track_index, device_index)
+local function find(track_index, device_index, panel)
   for i, p in ipairs(pins) do
-    if p.track_index == track_index and p.device_index == device_index then
+    if p.panel == panel and p.track_index == track_index and p.device_index == device_index then
       return p, i
     end
   end
@@ -137,6 +150,38 @@ function M.set_friction(pin, index, amount)
   if (pin.friction[index] or 0) == amount then return end
   pin.friction[index] = amount > 0 and amount or nil
   M.save()
+end
+
+function M.panels()
+  return panels
+end
+
+function M.create_panel()
+  local id = 1
+  for _, panel in ipairs(panels) do id = math.max(id, panel.id + 1) end
+  local panel = {id = id, name = "Panel " .. id, color = "557647"}
+  panels[#panels + 1] = panel
+  notify()
+  return panel
+end
+
+function M.update_panel(panel, name, color)
+  name = name:gsub("[%c]", " "):match("^%s*(.-)%s*$")
+  color = color:match("^#?(%x%x%x%x%x%x)$")
+  if name == "" or not color then return false end
+  panel.name, panel.color = name, color:upper()
+  notify()
+  return true
+end
+
+function M.remove_panel(panel)
+  for i = #pins, 1, -1 do
+    if pins[i].panel == panel then table.remove(pins, i) end
+  end
+  for i, candidate in ipairs(panels) do
+    if candidate == panel then table.remove(panels, i); break end
+  end
+  notify()
 end
 
 function M.on_change(fn)
@@ -160,8 +205,8 @@ function M.pin_device(track_index, device_index)
   return pin
 end
 
-function M.pin_param(track_index, device_index, param_index)
-  local pin = find(track_index, device_index)
+function M.pin_param(track_index, device_index, param_index, panel, friction)
+  local pin = find(track_index, device_index, panel)
   if pin then
     if pin.mode == "device" then return pin end -- already covered
     for _, i in ipairs(pin.params) do
@@ -172,11 +217,16 @@ function M.pin_param(track_index, device_index, param_index)
   else
     pin = {
       track_index = track_index, device_index = device_index,
-      mode = "params", params = { param_index }, friction = {},
+      mode = "params", params = { param_index }, friction = {}, panel = panel,
       device_name = song().tracks[track_index].devices[device_index].name,
     }
     pins[#pins + 1] = pin
   end
+  if panel and friction == nil then
+    local original = find(track_index, device_index)
+    friction = original and original.friction[param_index]
+  end
+  if friction and friction > 0 then pin.friction[param_index] = friction end
   notify()
   return pin
 end
@@ -215,13 +265,13 @@ end
 
 -- User action: forget every pin for this song (and persist that).
 function M.clear()
-  pins = {}
+  pins, panels = {}, {}
   notify()
 end
 
 -- Lifecycle: drop the in-memory model without saving or notifying.
 function M.reset()
-  pins = {}
+  pins, panels = {}, {}
 end
 
 -- Returns track, device or nil, reason.
