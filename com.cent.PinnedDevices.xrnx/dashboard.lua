@@ -4,6 +4,7 @@
 
 local pins = require("pins")
 local appearance = require("appearance")
+local background = require("pad_background")
 local xy = require("xy")
 local window_views = require("window_views")
 local expanded_panel
@@ -441,11 +442,7 @@ local function build_panel(panel)
         pins.save()
       end
     end)
-    -- A bitmap without a notifier lets the native pad handle clicks and drags.
-    body:add_view(cvb:stack {
-      pad,
-      cvb:bitmap {bitmap = "images/cnt-pad.png", mode = "plain", origin = {72, 72}},
-    })
+    body:add_view(background.layer(cvb, pad))
   end
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then

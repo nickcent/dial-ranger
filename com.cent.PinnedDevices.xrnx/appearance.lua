@@ -1,4 +1,5 @@
 -- Local bitmap looks and explicitly applied, application-wide Renoise themes.
+local background = require("pad_background")
 local M = {}
 
 local looks = {
@@ -68,6 +69,7 @@ function M.header(vb, rebuild)
         end}, strip},
       vb:row {vb:text {text = "Renoise theme", width = 94}, picker,
         vb:button {text = "Apply to Renoise", tooltip = "Change the colour theme of the entire application", notifier = apply}},
+      background.settings(vb),
     },
   }
 end
