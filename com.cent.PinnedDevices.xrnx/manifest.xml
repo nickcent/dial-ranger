@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RenoiseScriptingTool doc_version="0">
+  <ApiVersion>6</ApiVersion>
+  <Id>com.cent.PinnedDevices</Id>
+  <Version>0.1</Version>
+  <Author>Nick</Author>
+  <Name>Pinned Devices</Name>
+  <Category>Workflow</Category>
+  <Description>Keep chosen track and send devices visible and editable in one detached window.</Description>
+</RenoiseScriptingTool>
