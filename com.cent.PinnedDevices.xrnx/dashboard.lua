@@ -7,7 +7,7 @@ local pins = require("pins")
 local M = {}
 
 local VB = renoise.ViewBuilder
-local CARD_WIDTH = 330
+local CARD_WIDTH = 530
 local NAME_WIDTH = 110
 local SLIDER_WIDTH = 130
 local VALUE_WIDTH = 70
@@ -143,8 +143,22 @@ local function step_pair(p)
   return { range / 100, range / 10 }
 end
 
+local function clamp(value, low, high)
+  return math.max(low, math.min(high, value))
+end
+
 local function build_param_row(cvb, pin, i, p)
   local syncing = false
+  local function write(value)
+    local low, high, quantum = p.value_min, p.value_max, p.value_quantum
+    value = clamp(value, low, high)
+    if quantum > 0 and value ~= high then
+      value = clamp(low + math.floor((value - low) / quantum + 0.5) * quantum, low, high)
+    end
+    if value ~= p.value then
+      if p.is_automatable then p:record_value(value) else p.value = value end
+    end
+  end
   local slider = cvb:slider {
     min = p.value_min,
     max = p.value_max,
@@ -155,11 +169,23 @@ local function build_param_row(cvb, pin, i, p)
     steps = step_pair(p),
     width = SLIDER_WIDTH,
     notifier = function(v)
-      if not syncing then p.value = v end
+      if not syncing then write(v) end
     end,
   }
-  local value_text = cvb:text {
-    text = p.value_string, width = VALUE_WIDTH, align = "right",
+  local value_text
+  value_text = cvb:textfield {
+    value = p.value_string, width = VALUE_WIDTH, align = "right",
+    tooltip = "Enter a value in the device's own units",
+    notifier = function(text)
+      if syncing or text == p.value_string then return end
+      local previous = p.value
+      local ok = pcall(function() p.value_string = text end)
+      if ok and p.value ~= previous and p.is_automatable then p:record_value(p.value) end
+      if not ok then status("invalid value for " .. p.name) end
+      syncing = true
+      value_text.value = p.value_string
+      syncing = false
+    end,
   }
 
   watch(card_notifiers, p.value_observable, function()
@@ -168,13 +194,56 @@ local function build_param_row(cvb, pin, i, p)
     syncing = false
   end)
   watch(card_notifiers, p.value_string_observable, function()
-    value_text.text = p.value_string
+    syncing = true
+    value_text.value = p.value_string
+    syncing = false
   end)
 
+  local friction = renoise.Document.ObservableNumber(pin.friction[i] or 0)
+  local arrows = 26
+  local travel = SLIDER_WIDTH - arrows
+  local anchor
+  local track = cvb:canvas {
+    origin = {arrows, 0}, width = travel, height = slider.height,
+    mode = "transparent", render = function() end,
+    mouse_events = {"down", "drag", "up"},
+    mouse_handler = function(event)
+      if event.type == "down" and event.button == "left" then
+        anchor = {x = event.position.x, value = p.value,
+          scale = (p.value_max - p.value_min) / travel * 1000 ^ (-friction.value / 1000)}
+      elseif anchor and (event.type == "drag" or event.type == "up") then
+        write(anchor.value + (event.position.x - anchor.x) * anchor.scale)
+        if event.type == "up" then anchor = nil end
+      else
+        return event
+      end
+    end,
+  }
+  local mini = cvb:minislider {
+    min = 0, max = 1, width = 70, value = friction.value / 1000,
+    notifier = function(v)
+      local n = clamp(math.floor(v * 1000 + 0.5), 0, 1000)
+      if friction.value ~= n then friction.value = n end
+    end,
+  }
+  watch(card_notifiers, friction, function()
+    pins.set_friction(pin, i, friction.value)
+    local exact = friction.value / 1000
+    if mini.value ~= exact then mini.value = exact end
+  end)
+  local box = cvb:valuebox {
+    min = 0, max = 1000, width = 65, steps = {1, 10}, bind = friction,
+    tostring = function(n) return ("%.3f"):format(n / 1000) end,
+    tonumber = function(text)
+      local n = tonumber(text)
+      if n then return clamp(math.floor(n * 1000 + 0.5), 0, 1000) end
+    end,
+    tooltip = "Mouse friction. 1.000 gives 1000 times finer drag control.",
+  }
   local views = {
     cvb:text { text = p.name, width = NAME_WIDTH, tooltip = p.name },
-    slider,
-    value_text,
+    cvb:stack { slider, track }, value_text,
+    cvb:text { text = "Friction" }, mini, box,
   }
   if pin.mode == "params" then
     views[#views + 1] = cvb:button {
@@ -319,6 +388,7 @@ function M.show()
     return
   end
   M.detach_all()
+  card_children = {} -- The new root owns a fresh cards_view.
   local root = build_root()
   -- returning the key hands it back to Renoise's global shortcuts
   dlg = renoise.app():show_custom_dialog("Pinned Devices", root,

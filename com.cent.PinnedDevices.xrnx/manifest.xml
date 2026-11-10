@@ -2,8 +2,8 @@
 <RenoiseScriptingTool doc_version="0">
   <ApiVersion>6</ApiVersion>
   <Id>com.cent.PinnedDevices</Id>
-  <Version>0.1</Version>
-  <Author>Nick</Author>
+  <Version>0.2</Version>
+  <Author>nickcent</Author>
   <Name>Pinned Devices</Name>
   <Category>Workflow</Category>
   <Description>Keep chosen track and send devices visible and editable in one detached window.</Description>

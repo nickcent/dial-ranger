@@ -6,6 +6,7 @@
 -- { track_index = integer, device_index = integer,
 --   mode = "device" | "params",   -- "device" = all parameters, live count
 --   params = { integer, ... },    -- sorted param indices; empty when mode == "device"
+--   friction = { [param_index] = integer thousandths },
 --   device_name = string }        -- device.name at pin time, for restore validation
 
 local M = {}
@@ -37,7 +38,28 @@ end
 -- Persistence
 -- ---------------------------------------------------------------------------
 
--- one pin per line: file \t track \t device \t device_name \t mode \t p1,p2,...
+-- The optional seventh column stores nonzero friction as index:thousandths.
+local function encode_friction(pin)
+  local indices, fields = {}, {}
+  for i in pairs(pin.friction) do indices[#indices + 1] = i end
+  table.sort(indices)
+  for _, i in ipairs(indices) do
+    fields[#fields + 1] = i .. ":" .. pin.friction[i]
+  end
+  return table.concat(fields, ",")
+end
+
+local function decode_friction(field)
+  local values = {}
+  for item in field:gmatch("[^,]+") do
+    local index, amount = item:match("^(%d+):(%d+)$")
+    index, amount = tonumber(index), tonumber(amount)
+    if index and index >= 1 and amount >= 1 and amount <= 1000 then
+      values[index] = amount
+    end
+  end
+  return values
+end
 function M.save()
   local file = current_file()
   if not file then return end
@@ -49,7 +71,7 @@ function M.save()
   for _, p in ipairs(pins) do
     out[#out + 1] = table.concat({
       file, tostring(p.track_index), tostring(p.device_index),
-      p.device_name, p.mode, table.concat(p.params, ","),
+      p.device_name, p.mode, table.concat(p.params, ","), encode_friction(p),
     }, "\t")
   end
   prefs.pins.value = table.concat(out, "\n")
@@ -59,8 +81,8 @@ end
 function M.restore(file)
   if file == nil or file == "" then return end
   for line in prefs.pins.value:gmatch("[^\n]+") do
-    local f, t, d, name, mode, plist =
-      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+    local f, t, d, name, mode, plist, friction =
+      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)$")
     if f == file then
       local ti, di = tonumber(t), tonumber(d)
       if ti and di and name ~= "" and (mode == "device" or mode == "params") then
@@ -74,6 +96,7 @@ function M.restore(file)
           pins[#pins + 1] = {
             track_index = ti, device_index = di,
             mode = mode, params = params, device_name = name,
+            friction = decode_friction(friction),
           }
         end
       end
@@ -110,6 +133,12 @@ function M.list()
   return pins
 end
 
+function M.set_friction(pin, index, amount)
+  if (pin.friction[index] or 0) == amount then return end
+  pin.friction[index] = amount > 0 and amount or nil
+  M.save()
+end
+
 function M.on_change(fn)
   listener = fn
 end
@@ -122,7 +151,7 @@ function M.pin_device(track_index, device_index)
   else
     pin = {
       track_index = track_index, device_index = device_index,
-      mode = "device", params = {},
+      mode = "device", params = {}, friction = {},
       device_name = song().tracks[track_index].devices[device_index].name,
     }
     pins[#pins + 1] = pin
@@ -143,7 +172,7 @@ function M.pin_param(track_index, device_index, param_index)
   else
     pin = {
       track_index = track_index, device_index = device_index,
-      mode = "params", params = { param_index },
+      mode = "params", params = { param_index }, friction = {},
       device_name = song().tracks[track_index].devices[device_index].name,
     }
     pins[#pins + 1] = pin
@@ -170,6 +199,7 @@ function M.unpin_param(pin, param_index)
   if pin.mode ~= "params" then return end
   for i, idx in ipairs(pin.params) do
     if idx == param_index then
+      pin.friction[param_index] = nil
       table.remove(pin.params, i)
       break
     end
