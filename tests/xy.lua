@@ -39,6 +39,18 @@ setup(first, 2, "y", b, -2, 2)
 setup(second, 1, "x", c, 2, -2)
 setup(second, 2, "y", d, 1, 1)
 local function move(x, y) xy.move(panel, x, y, pins.list(), pins.resolve) end
+-- Two parameters share X with opposing endpoint directions. A picker edit
+-- changes only the transfer function used by the next X movement.
+local midpoint = {0.9375, 0.75, 0.5, 0.25, 0.0625}
+local scaling = require("scaling")
+for i, expected in ipairs(midpoint) do
+  assert(scaling.apply(i, 0) == 0 and scaling.apply(i, 1) == 1)
+  assert(scaling.apply(i, 0.5) == expected)
+  first.maps[1].scaling = i
+  move(0.5, nil)
+  assert(a.value == -2 + 4 * expected and c.value == 0)
+end
+first.maps[1].scaling = 3
 move(0.25, nil)
 assert(a.value == -1 and c.value == 1 and b.value == 2 and d.value == 1)
 d.value = 0 -- an external change must survive X-only movement
@@ -52,14 +64,28 @@ move(1, 0)
 assert(a.value == 2 and b.value == -2 and c.value == -2)
 xy.assign(first, 1, "y", a)
 assert(first.maps[1].low == -2 and first.maps[1].high == 2 and a.value == 2)
+first.maps[1].scaling = 2
+first.maps[2].scaling = 5
+local before = a.value
 pins.save()
+assert(a.value == before)
+-- Simulate one legacy range at the same time as curved peers.
+local legacy, replaced = tool.preferences.pins.value:gsub(
+  "([^\n]*\txy%-range\t1\t2\t1\t1\t[^\n]*)\t3", "%1", 1)
+assert(replaced == 1)
+tool.preferences.pins.value = legacy
 pins.reset()
 a.value, b.value, c.value, d.value = 0.1, 0, 0.4, 0.5
 pins.restore(song.file_name)
 panel, first, second = pins.panels()[1], pins.list()[2], pins.list()[3]
 assert(panel.x == 1 and panel.y == 0 and first.maps[1].axis == "y")
 assert(second.maps[1].low == 2 and second.maps[1].high == -2)
+assert(first.maps[1].scaling == 2 and first.maps[2].scaling == 5 and second.maps[1].scaling == 3)
 assert(first.maps[1].low_text == "original\t100%" and a.value == 0.1 and d.value == 0.5)
+move(nil, 0.5)
+assert(b.value == -2 and d.value == 1) -- curved interpolation then quantum; equal endpoints
+a.value = 0.1
+d.value = 0.5
 xy.assign(first, 1, nil, a)
 assert(not first.maps[1] and a.value == 0.1)
 pins.unpin_param(second, 2)

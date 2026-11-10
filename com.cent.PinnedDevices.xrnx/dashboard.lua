@@ -5,6 +5,7 @@
 local pins = require("pins")
 local appearance = require("appearance")
 local xy = require("xy")
+local window_views = require("window_views")
 local expanded_panel
 
 local M = {}
@@ -302,6 +303,7 @@ local function build_param_row(cvb, pin, i, p)
   end
   add_endpoint("low", "Set Min")
   add_endpoint("high", "Set Max")
+  range:add_view(window_views.scaling_picker(cvb, map, pins.save))
   return cvb:column {row, range}
 end
 
@@ -527,7 +529,8 @@ function M.show()
   end
   M.detach_all()
   card_children = {} -- The new root owns a fresh cards_view.
-  local root = build_root()
+  local content = build_root()
+  local root = window_views.frame(vb, content)
   -- returning the key hands it back to Renoise's global shortcuts
   dlg = renoise.app():show_custom_dialog("Dial Ranger", root,
     function(_, key) return key end)

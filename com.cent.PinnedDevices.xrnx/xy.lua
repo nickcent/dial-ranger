@@ -1,5 +1,6 @@
 -- One mapping per source parameter per panel. A mapping travels with its pin
 -- when tracks/devices move. Captured strings are the device's native units.
+local scaling = require("scaling")
 local M = {}
 
 function M.write(p, value)
@@ -20,7 +21,7 @@ function M.assign(source, index, axis, p)
     return
   end
   local map = source.maps[index] or {
-    low = p.value, high = p.value, low_text = p.value_string, high_text = p.value_string,
+    scaling = scaling.linear, low = p.value, high = p.value, low_text = p.value_string, high_text = p.value_string,
   }
   map.axis = axis
   source.maps[index] = map
@@ -43,7 +44,8 @@ function M.move(panel, x, y, pins, resolve)
           if map.axis == "x" then position = x else position = y end
           local p = device.parameters[index]
           if p and position ~= nil then
-            M.write(p, map.low + (map.high - map.low) * position)
+            local t = scaling.apply(map.scaling, position)
+            M.write(p, map.low + (map.high - map.low) * t)
           end
         end
       end
@@ -78,7 +80,8 @@ function M.save(file, out, panels, pins)
         if m then
           out[#out + 1] = table.concat({file, "xy-range", source.panel.id,
             source.track_index, source.device_index, index, m.axis,
-            number(m.low), number(m.high), escape(m.low_text), escape(m.high_text)}, "\t")
+            number(m.low), number(m.high), escape(m.low_text), escape(m.high_text),
+            m.scaling or scaling.linear}, "\t")
         end
       end
     end
@@ -98,9 +101,9 @@ function M.restore(file, records, panels_by_id, pins)
       x, y = finite(x), finite(y)
       if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then panel.x, panel.y = x, y end
     end
-    local track, device, index, axis, low, high, low_text, high_text
-    project, id, track, device, index, axis, low, high, low_text, high_text =
-      line:match("^([^\t]*)\txy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)$")
+    local track, device, index, axis, low, high, low_text, high_text, curve
+    project, id, track, device, index, axis, low, high, low_text, high_text, curve =
+      line:match("^([^\t]*)\txy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)\t?(%d*)$")
     panel = panels_by_id[id]
     if project == file and panel then
       low, high = finite(low), finite(high)
@@ -111,6 +114,7 @@ function M.restore(file, records, panels_by_id, pins)
             if i == tonumber(index) then
               source.maps = source.maps or {}
               source.maps[i] = {axis = axis, low = low, high = high,
+                scaling = scaling.names[tonumber(curve)] and tonumber(curve) or scaling.linear,
                 low_text = unescape(low_text), high_text = unescape(high_text)}
               break
             end
