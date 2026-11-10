@@ -43,6 +43,12 @@ local function move(x, y) xy.move(panel, x, y, pins.list(), pins.resolve) end
 -- changes only the transfer function used by the next X movement.
 local midpoint = {0.9375, 0.75, 0.5, 0.25, 0.0625}
 local scaling = require("scaling")
+for _, y in ipairs({-1, 0, 0.02, 0.147, 0.5, 0.846, 0.98, 1, 2}) do
+  local bend = scaling.from_midpoint(y)
+  local expected = math.max(1/256, math.min(255/256, y))
+  assert(math.abs(scaling.apply(bend, 0.5) - expected) < 1e-12)
+  assert(scaling.apply(bend, 0) == 0 and scaling.apply(bend, 1) == 1)
+end
 for i, expected in ipairs(midpoint) do
   assert(scaling.apply(i, 0) == 0 and scaling.apply(i, 1) == 1)
   assert(scaling.apply(i, 0.5) == expected)
@@ -64,7 +70,8 @@ move(1, 0)
 assert(a.value == 2 and b.value == -2 and c.value == -2)
 xy.assign(first, 1, "y", a)
 assert(first.maps[1].low == -2 and first.maps[1].high == 2 and a.value == 2)
-first.maps[1].scaling = 2
+local custom = scaling.from_midpoint(0.846)
+first.maps[1].scaling = custom
 first.maps[2].scaling = 5
 local before = a.value
 pins.save()
@@ -80,7 +87,7 @@ pins.restore(song.file_name)
 panel, first, second = pins.panels()[1], pins.list()[2], pins.list()[3]
 assert(panel.x == 1 and panel.y == 0 and first.maps[1].axis == "y")
 assert(second.maps[1].low == 2 and second.maps[1].high == -2)
-assert(first.maps[1].scaling == 2 and first.maps[2].scaling == 5 and second.maps[1].scaling == 3)
+assert(first.maps[1].scaling == custom and first.maps[2].scaling == 5 and second.maps[1].scaling == 3)
 assert(first.maps[1].low_text == "original\t100%" and a.value == 0.1 and d.value == 0.5)
 move(nil, 0.5)
 assert(b.value == -2 and d.value == 1) -- curved interpolation then quantum; equal endpoints

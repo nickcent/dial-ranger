@@ -2,7 +2,7 @@
 <RenoiseScriptingTool doc_version="0">
   <ApiVersion>6</ApiVersion>
   <Id>com.cent.PinnedDevices</Id>
-  <Version>0.7</Version>
+  <Version>0.8</Version>
   <Author>nickcent</Author>
   <Name>Dial Ranger</Name>
   <Category>Workflow</Category>

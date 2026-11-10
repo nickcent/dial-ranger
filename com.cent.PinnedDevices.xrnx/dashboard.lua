@@ -303,7 +303,7 @@ local function build_param_row(cvb, pin, i, p)
   end
   add_endpoint("low", "Set Min")
   add_endpoint("high", "Set Max")
-  range:add_view(window_views.scaling_picker(cvb, map, pins.save))
+  range:add_view(window_views.curve_editor(cvb, map, pins.save))
   return cvb:column {row, range}
 end
 

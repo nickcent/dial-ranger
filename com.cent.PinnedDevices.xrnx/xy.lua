@@ -81,7 +81,7 @@ function M.save(file, out, panels, pins)
           out[#out + 1] = table.concat({file, "xy-range", source.panel.id,
             source.track_index, source.device_index, index, m.axis,
             number(m.low), number(m.high), escape(m.low_text), escape(m.high_text),
-            m.scaling or scaling.linear}, "\t")
+            number(m.scaling or scaling.linear)}, "\t")
         end
       end
     end
@@ -103,10 +103,10 @@ function M.restore(file, records, panels_by_id, pins)
     end
     local track, device, index, axis, low, high, low_text, high_text, curve
     project, id, track, device, index, axis, low, high, low_text, high_text, curve =
-      line:match("^([^\t]*)\txy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)\t?(%d*)$")
+      line:match("^([^\t]*)\txy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)\t?([^\t]*)$")
     panel = panels_by_id[id]
     if project == file and panel then
-      low, high = finite(low), finite(high)
+      low, high, curve = finite(low), finite(high), finite(curve)
       for _, source in ipairs(pins) do
         if low and high and source.panel == panel and source.track_index == tonumber(track)
           and source.device_index == tonumber(device) then
@@ -114,7 +114,7 @@ function M.restore(file, records, panels_by_id, pins)
             if i == tonumber(index) then
               source.maps = source.maps or {}
               source.maps[i] = {axis = axis, low = low, high = high,
-                scaling = scaling.names[tonumber(curve)] and tonumber(curve) or scaling.linear,
+                scaling = curve and curve >= 0 and curve <= 6 and curve or scaling.linear,
                 low_text = unescape(low_text), high_text = unescape(high_text)}
               break
             end
