@@ -31,7 +31,7 @@ local function display_name(device)
 end
 
 local function status(msg)
-  renoise.app():show_status("Pinned Devices: " .. msg)
+  renoise.app():show_status("Dial Ranger: " .. msg)
 end
 
 local function watch(list, obs, fn)
@@ -481,7 +481,7 @@ function M.show()
   card_children = {} -- The new root owns a fresh cards_view.
   local root = build_root()
   -- returning the key hands it back to Renoise's global shortcuts
-  dlg = renoise.app():show_custom_dialog("Pinned Devices", root,
+  dlg = renoise.app():show_custom_dialog("Dial Ranger", root,
     function(_, key) return key end)
   M.rebuild()
 end

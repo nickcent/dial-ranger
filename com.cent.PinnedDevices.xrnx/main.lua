@@ -1,4 +1,4 @@
--- Pinned Devices: keep chosen track/send DSP devices visible and editable in
+-- Dial Ranger: keep chosen track/send DSP devices visible and editable in
 -- one detached, non-modal window.
 
 local pins = require("pins")
@@ -27,27 +27,35 @@ end
 -- ---------------------------------------------------------------------------
 
 tool:add_menu_entry {
-  name = "Main Menu:Tools:Pinned Devices...",
+  name = "Main Menu:Tools:Dial Ranger...",
   invoke = dashboard.show,
 }
 
 tool:add_menu_entry {
-  name = "DSP Device:Pin Device to Pinned Devices",
+  name = "DSP Device:Pin Device to Dial Ranger",
   invoke = pin_selected_device,
   active = has_selected_device,
 }
 
 tool:add_menu_entry {
-  name = "DSP Device Header:Pin Device to Pinned Devices",
+  name = "DSP Device Header:Pin Device to Dial Ranger",
   invoke = pin_selected_device,
   active = has_selected_device,
 }
 
+local function show_dashboard(repeated)
+  if not repeated then dashboard.show() end
+end
+
+tool:add_keybinding {
+  name = "Global:Tools:Show Dial Ranger",
+  invoke = show_dashboard,
+}
+
+-- Renoise stores shortcut assignments by the full registered name.
 tool:add_keybinding {
   name = "Global:Tools:Show Pinned Devices",
-  invoke = function(repeated)
-    if not repeated then dashboard.show() end
-  end,
+  invoke = show_dashboard,
 }
 
 -- ---------------------------------------------------------------------------

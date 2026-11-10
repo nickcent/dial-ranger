@@ -292,7 +292,7 @@ function M.resolve(pin)
 end
 
 local function report_dropped(pin)
-  renoise.app():show_status(("Pinned Devices: dropped %s (track or device no longer exists)")
+  renoise.app():show_status(("Dial Ranger: dropped %s (track or device no longer exists)")
     :format(pin.device_name))
 end
 
