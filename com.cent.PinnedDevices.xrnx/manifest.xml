@@ -2,9 +2,9 @@
 <RenoiseScriptingTool doc_version="0">
   <ApiVersion>6</ApiVersion>
   <Id>com.cent.PinnedDevices</Id>
-  <Version>0.5</Version>
+  <Version>0.6</Version>
   <Author>nickcent</Author>
   <Name>Dial Ranger</Name>
   <Category>Workflow</Category>
-  <Description>Sweep parameters by ear, use mouse friction to fine-tune a sweet spot, and group controls from different devices in custom panels.</Description>
+  <Description>Sweep parameters by ear, use mouse friction to fine-tune a sweet spot, and group controls from different devices in custom panels. Play captured ranges together on an XY pad.</Description>
 </RenoiseScriptingTool>

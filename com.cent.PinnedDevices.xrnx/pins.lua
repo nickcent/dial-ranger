@@ -9,6 +9,7 @@
 --   friction = { [param_index] = integer thousandths },
 --   device_name = string }        -- device.name at pin time, for restore validation
 
+local xy = require("xy")
 local M = {}
 
 local pins = {}
@@ -81,6 +82,7 @@ function M.save()
     if p.panel then fields[#fields + 1] = p.panel.id end
     out[#out + 1] = table.concat(fields, "\t")
   end
+  xy.save(file, out, panels, pins)
   prefs.pins.value = table.concat(out, "\n")
 end
 
@@ -116,6 +118,7 @@ function M.restore(file)
       end
     end
   end
+  xy.restore(file, prefs.pins.value, by_id, pins)
 end
 
 -- ---------------------------------------------------------------------------
@@ -255,6 +258,7 @@ function M.unpin_param(pin, param_index)
   end
   for i, idx in ipairs(pin.params) do
     if idx == param_index then
+      if pin.maps then pin.maps[param_index] = nil end
       pin.friction[param_index] = nil
       table.remove(pin.params, i)
       break
@@ -302,7 +306,14 @@ end
 function M.prune()
   local kept, dropped = {}, false
   for _, p in ipairs(pins) do
-    if M.resolve(p) then
+    local track, device = M.resolve(p)
+    if track then
+      for index in pairs(p.maps or {}) do
+        if not device.parameters[index] then
+          p.maps[index] = nil
+          dropped = true
+        end
+      end
       kept[#kept + 1] = p
     else
       report_dropped(p)

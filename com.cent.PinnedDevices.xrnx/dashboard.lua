@@ -4,6 +4,8 @@
 
 local pins = require("pins")
 local appearance = require("appearance")
+local xy = require("xy")
+local expanded_panel
 
 local M = {}
 
@@ -171,16 +173,6 @@ end
 
 local function build_param_row(cvb, pin, i, p)
   local syncing = false
-  local function write(value)
-    local low, high, quantum = p.value_min, p.value_max, p.value_quantum
-    value = clamp(value, low, high)
-    if quantum > 0 and value ~= high then
-      value = clamp(low + math.floor((value - low) / quantum + 0.5) * quantum, low, high)
-    end
-    if value ~= p.value then
-      if p.is_automatable then p:record_value(value) else p.value = value end
-    end
-  end
   local slider = cvb:slider {
     min = p.value_min,
     max = p.value_max,
@@ -191,7 +183,7 @@ local function build_param_row(cvb, pin, i, p)
     steps = step_pair(p),
     width = SLIDER_WIDTH,
     notifier = function(v)
-      if not syncing then write(v) end
+      if not syncing then xy.write(p, v) end
     end,
   }
   local value_text
@@ -234,7 +226,7 @@ local function build_param_row(cvb, pin, i, p)
         anchor = {x = event.position.x, value = p.value,
           scale = (p.value_max - p.value_min) / travel * 1000 ^ (-friction.value / 1000)}
       elseif anchor and (event.type == "drag" or event.type == "up") then
-        write(anchor.value + (event.position.x - anchor.x) * anchor.scale)
+        xy.write(p, anchor.value + (event.position.x - anchor.x) * anchor.scale)
         if event.type == "up" then anchor = nil end
       else
         return event
@@ -281,7 +273,36 @@ local function build_param_row(cvb, pin, i, p)
       end,
     }
   end
-  return cvb:row { spacing = VB.DEFAULT_CONTROL_SPACING, views = views }
+  if not pin.panel then return cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING, views = views} end
+
+  local map = pin.maps and pin.maps[i]
+  local axes = {[2] = "x", [3] = "y"}
+  local axis_index = map and (map.axis == "x" and 2 or 3) or 1
+  views[#views + 1] = cvb:popup {
+    items = {"XY off", "Axis X", "Axis Y"}, value = axis_index, width = 78,
+    tooltip = "Assign this panel parameter to one axis. Switching axes keeps its range.",
+    notifier = function(n)
+      xy.assign(pin, i, axes[n], p)
+      pins.save()
+      M.rebuild()
+    end,
+  }
+  local row = cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING, views = views}
+  if not map then return row end
+  local range = cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING, cvb:space {width = NAME_WIDTH}}
+  local function add_endpoint(key, caption)
+    local label = cvb:text {text = map[key .. "_text"], width = 100}
+    range:add_view(cvb:button {text = caption, tooltip = "Capture the current " .. p.name,
+      notifier = function()
+        xy.capture(map, key, p)
+        label.text = map[key .. "_text"]
+        pins.save()
+      end})
+    range:add_view(label)
+  end
+  add_endpoint("low", "Set Min")
+  add_endpoint("high", "Set Max")
+  return cvb:column {row, range}
 end
 
 local function param_indices(pin, device)
@@ -391,10 +412,35 @@ local function build_panel(panel)
       cvb:bitmap {bitmap = appearance.bitmap(), mode = "plain"},
       cvb:button {text = "Panel  ·  " .. panel.name, width = 240, height = 28, color = rgb,
         tooltip = "Edit panel name and colour", notifier = function() edit_panel(panel) end},
+      cvb:button {text = expanded_panel == panel and "Hide XY" or "XY pad",
+        notifier = function()
+          if expanded_panel == panel then expanded_panel = nil else expanded_panel = panel end
+          M.rebuild()
+        end},
       cvb:button {text = "Edit", notifier = function() edit_panel(panel) end},
       cvb:button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end},
     },
   }
+  local rows = cvb:column {spacing = VB.DEFAULT_CONTROL_SPACING}
+  local body = cvb:row {spacing = VB.DEFAULT_DIALOG_SPACING, rows}
+  view:add_view(body)
+  if expanded_panel == panel then
+    local pad = cvb:xypad {width = 400, height = 400,
+      value = {x = panel.x or 0.5, y = panel.y or 0.5}}
+    -- Register after construction. Restoring a position must never move a DSP.
+    local previous = pad.value
+    pad:add_notifier(function(value)
+      local x, y
+      if value.x ~= previous.x then x = value.x end
+      if value.y ~= previous.y then y = value.y end
+      previous = {x = value.x, y = value.y}
+      if x ~= nil or y ~= nil then
+        xy.move(panel, x, y, pins.list(), pins.resolve)
+        pins.save()
+      end
+    end)
+    body:add_view(pad)
+  end
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
       local track, device = pins.resolve(source)
@@ -406,9 +452,9 @@ local function build_panel(panel)
       update_label()
       watch(card_notifiers, track.name_observable, update_label)
       watch(card_notifiers, device.display_name_observable, update_label)
-      view:add_view(label)
+      rows:add_view(label)
       for _, i in ipairs(param_indices(source, device)) do
-        view:add_view(build_param_row(cvb, source, i, device.parameters[i]))
+        rows:add_view(build_param_row(cvb, source, i, device.parameters[i]))
       end
     end
   end
