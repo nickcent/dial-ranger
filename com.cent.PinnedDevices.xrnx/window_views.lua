@@ -20,7 +20,9 @@ end
 function M.curve_editor(vb, map, save)
   local width, height, pad = 360, 144, 7
   local w, h = width - 2 * pad, height - 2 * pad
-  local graph, dragging, grab_offset
+  -- Renoise reports the Mac Command key as "control" in canvas mouse events.
+  local fine_key = os.platform() == "MACINTOSH" and "Command" or "Control"
+  local graph, last_y
   local function y_at(t)
     return pad + h * (1 - scaling.apply(map.scaling, t))
   end
@@ -49,21 +51,27 @@ function M.curve_editor(vb, map, save)
   local function mouse(e)
     if e.type == "down" and e.button == "left" then
       local dy = e.position.y - y_at(0.5)
-      dragging = math.abs(e.position.x - width / 2) <= 10 and math.abs(dy) <= 10
-      grab_offset = dy
-    elseif dragging and e.type == "drag" then
-      local value = scaling.from_midpoint(1 - (e.position.y - grab_offset - pad) / h)
+      if math.abs(e.position.x - width / 2) <= 10 and math.abs(dy) <= 10 then
+        last_y = e.position.y
+      end
+    elseif last_y and e.type == "drag" then
+      local distance = last_y - e.position.y
+      last_y = e.position.y
+      if distance == 0 then return end
+      local sensitivity = e.modifier_flags.control and 0.1 or 1
+      local midpoint = scaling.apply(map.scaling, 0.5) + distance * sensitivity / h
+      local value = scaling.from_midpoint(midpoint)
       if value ~= map.scaling then
         map.scaling = value
         graph:update()
       end
-    elseif dragging and e.type == "up" then
-      dragging = false
+    elseif last_y and e.type == "up" then
+      last_y = nil
       save()
     end
   end
   graph = vb:canvas {width = width, height = height, render = render,
-    tooltip = "Drag the centre handle up or down", mouse_events = {"down", "drag", "up"},
+    tooltip = "Drag the centre handle up or down. Hold " .. fine_key .. " for fine adjustment.", mouse_events = {"down", "drag", "up"},
     mouse_handler = mouse}
   local presets = vb:row {}
   for i, name in ipairs(scaling.names) do
