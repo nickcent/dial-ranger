@@ -3,6 +3,7 @@
 -- indices on every structural change; live values flow through notifiers.
 
 local pins = require("pins")
+local appearance = require("appearance")
 
 local M = {}
 
@@ -100,7 +101,7 @@ local function build_root()
     background = "group",
     margin = VB.DEFAULT_CONTROL_MARGIN,
     spacing = VB.DEFAULT_CONTROL_SPACING,
-    vb:text { id = "sel_label", text = "", font = "bold" },
+    vb:text { id = "sel_label", text = "", width = 398, font = "bold" },
     vb:row {
       spacing = VB.DEFAULT_CONTROL_SPACING,
       vb:button {
@@ -145,6 +146,7 @@ local function build_root()
   return vb:column {
     margin = VB.DEFAULT_DIALOG_MARGIN,
     spacing = VB.DEFAULT_DIALOG_SPACING,
+    appearance.header(vb, M.rebuild),
     panel,
     panels_view,
     cards_view,
@@ -327,7 +329,7 @@ local function build_card(pin, track, device)
     tooltip = "Active (bypass when off)",
     notifier = function(v) device.is_active = v end,
   }
-  local title = cvb:text { text = display_name(device), font = "bold" }
+  local title = cvb:text { text = display_name(device), width = 190, font = "bold" }
   watch(card_notifiers, device.is_active_observable, function()
     active_box.value = device.is_active
   end)
@@ -386,8 +388,8 @@ local function build_panel(panel)
   local view = cvb:column {
     background = "group", margin = VB.DEFAULT_CONTROL_MARGIN, spacing = VB.DEFAULT_CONTROL_SPACING,
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-      cvb:bitmap {bitmap = "images/panel-header.bmp", mode = "plain"},
-      cvb:button {text = panel.name, width = 230, color = rgb,
+      cvb:bitmap {bitmap = appearance.bitmap(), mode = "plain"},
+      cvb:button {text = "Panel  ·  " .. panel.name, width = 240, height = 28, color = rgb,
         tooltip = "Edit panel name and colour", notifier = function() edit_panel(panel) end},
       cvb:button {text = "Edit", notifier = function() edit_panel(panel) end},
       cvb:button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end},
@@ -396,7 +398,7 @@ local function build_panel(panel)
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
       local track, device = pins.resolve(source)
-      local label = cvb:text {font = "bold"}
+      local label = cvb:text {font = "bold", width = 420}
       local function update_label()
         label.text = ("%02d %s  ·  %02d %s"):format(source.track_index, track.name,
           source.device_index, display_name(device))

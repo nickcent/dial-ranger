@@ -22,6 +22,7 @@ local device_handlers = {}           -- { {obs = devices_observable, fn = fn}, .
 -- persistence
 local prefs = renoise.Document.create("PinnedDevicesPreferences") {
   pins = "",
+  panel_look = "CNT Night Circuit",
 }
 renoise.tool().preferences = prefs
 
