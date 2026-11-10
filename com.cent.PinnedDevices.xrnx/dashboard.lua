@@ -441,7 +441,11 @@ local function build_panel(panel)
         pins.save()
       end
     end)
-    body:add_view(pad)
+    -- A bitmap without a notifier lets the native pad handle clicks and drags.
+    body:add_view(cvb:stack {
+      pad,
+      cvb:bitmap {bitmap = "images/cnt-pad.png", mode = "plain", origin = {72, 72}},
+    })
   end
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
