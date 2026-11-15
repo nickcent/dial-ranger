@@ -24,9 +24,9 @@ local looks = {
     background = {44, 46, 48}, panel = {56, 59, 62}, border = {86, 90, 94},
     text = {228, 228, 222}, dim = {150, 152, 150},
     button = {28, 29, 31}, button_text = {228, 228, 222},
-    accent = {255, 168, 48}, accent_text = {28, 29, 31},
+    accent = {72, 176, 232}, accent_text = {28, 29, 31},
     pad = {24, 25, 27}, grid = {255, 255, 255, 18}, ring = {255, 255, 255, 60},
-    cross = {255, 168, 48, 190}, corner = {228, 228, 222}, cursor = {255, 168, 48},
+    cross = {72, 176, 232, 190}, corner = {228, 228, 222}, cursor = {72, 176, 232},
   },
   virus = {
     background = {16, 9, 9}, panel = {34, 13, 13}, border = {112, 22, 24},
@@ -36,18 +36,18 @@ local looks = {
     pad = {10, 6, 6}, grid = {226, 30, 36, 34}, ring = {226, 30, 36, 120},
     cross = {226, 30, 36, 210}, corner = {238, 228, 228}, cursor = {255, 255, 255},
   },
-  light = {
-    background = {238, 236, 230}, panel = {249, 248, 244}, border = {198, 195, 188},
-    text = {32, 32, 30}, dim = {112, 112, 106},
-    button = {224, 221, 213}, button_text = {32, 32, 30},
-    accent = {32, 32, 30}, accent_text = {249, 248, 244},
-    pad = {250, 249, 246}, grid = {32, 32, 30, 22}, ring = {32, 32, 30, 70},
-    cross = {32, 32, 30, 150}, corner = {32, 32, 30}, cursor = {32, 32, 30},
+  desert = {
+    background = {186, 164, 126}, panel = {200, 180, 144}, border = {140, 116, 82},
+    text = {52, 40, 28}, dim = {108, 88, 62},
+    button = {168, 144, 104}, button_text = {52, 40, 28},
+    accent = {148, 68, 38}, accent_text = {240, 226, 200},
+    pad = {214, 196, 160}, grid = {52, 40, 28, 26}, ring = {52, 40, 28, 80},
+    cross = {148, 68, 38, 180}, corner = {52, 40, 28}, cursor = {148, 68, 38},
   },
 }
 
 -- The order new XYs take their skins in; keys match the `skin` preference.
-local order = {"terminal", "renoise", "hardware", "virus", "light"}
+local order = {"terminal", "renoise", "hardware", "virus", "desert"}
 
 local palette
 
@@ -84,25 +84,28 @@ end
 
 M.load()
 
--- Property helpers: fill in themed colours unless the caller set them.
-function M.text(props)
-  props.style, props.color = "custom", props.color or palette.text
+-- Property helpers: fill in themed colours unless the caller set them. They
+-- use the current skin, or `look` for a view shown in another skin.
+function M.text(props, look)
+  props.style, props.color = "custom", props.color or (look or palette).text
   return props
 end
 
-function M.dim(props)
-  props.style, props.color = "custom", props.color or palette.dim
+function M.dim(props, look)
+  props.style, props.color = "custom", props.color or (look or palette).dim
   return props
 end
 
-function M.button(props)
-  props.color = props.color or palette.button
-  props.secondary_color = props.secondary_color or palette.button_text
+function M.button(props, look)
+  look = look or palette
+  props.color = props.color or look.button
+  props.secondary_color = props.secondary_color or look.button_text
   return props
 end
 
-function M.accent(props)
-  props.color, props.secondary_color = palette.accent, palette.accent_text
+function M.accent(props, look)
+  look = look or palette
+  props.color, props.secondary_color = look.accent, look.accent_text
   return props
 end
 
