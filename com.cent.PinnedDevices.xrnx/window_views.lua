@@ -2,40 +2,42 @@ local scaling = require("scaling")
 local theme = require("theme")
 local M = {}
 
--- Paints the whole window so the host theme's dialog background stays hidden.
--- The canvas gets the content's exact size: a "100%" canvas inside the stack
--- it sizes would keep the window at its largest size ever. The stack then
--- autosizes to its children.
-M.refit = function() end
-
-function M.frame(vb, content)
+-- Paints a whole window in the palette `look`, or in the current skin without
+-- one, so the host theme's dialog background stays hidden. The canvas gets
+-- the content's exact size: a "100%" canvas inside the stack it sizes would
+-- keep the window at its largest size ever. The stack then autosizes to its
+-- children. Returns the view and the frame's operations.
+function M.frame(vb, content, look)
   local body = vb:column {margin = 10, content}
   local canvas = vb:canvas {width = 1, height = 1, mode = "plain", render = function(ctx)
-    local palette = theme.palette
+    local palette = look or theme.palette
     local w, h = ctx.size.width, ctx.size.height
     ctx.fill_color = palette.background
     ctx:fill_rect(0, 0, w, h)
     ctx.stroke_color, ctx.line_width = palette.border, 2
     ctx:stroke_rect(1, 1, w - 2, h - 2)
   end}
-  M.refit = function()
+  local frame = {}
+  -- Fits the window to its content after that changed size.
+  function frame.refit()
     body:resize()
     canvas.width, canvas.height = body.width, body.height
   end
   -- Swaps the whole content in place, keeping the window where it is. Views
   -- take their colours when built, so a new skin needs new views.
-  M.replace = function(replacement)
+  function frame.replace(replacement)
     body:remove_view(content)
     content = replacement
     body:add_view(content)
     canvas:update()
-    M.refit()
+    frame.refit()
   end
-  M.refit()
-  return vb:stack {canvas, body}
+  frame.refit()
+  return vb:stack {canvas, body}, frame
 end
 
-function M.curve_editor(vb, map, save)
+-- `refit()` fits the window after the editor opens or closes.
+function M.curve_editor(vb, map, save, refit)
   local width, height, pad = 360, 144, 7
   local w, h = width - 2 * pad, height - 2 * pad
   -- Renoise reports the Mac Command key as "control" in canvas mouse events.
@@ -106,7 +108,7 @@ function M.curve_editor(vb, map, save)
     vb:button(theme.button {text = "Curve", width = 58, tooltip = "Edit mapping curve",
       notifier = function()
         editor.visible = not editor.visible
-        M.refit()
+        refit()
       end}),
     editor,
   }

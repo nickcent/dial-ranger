@@ -23,6 +23,7 @@ local xy_view               -- the current skin's XY parameters
 local pad_view              -- holds the XY pad, right of the controls
 local header_view           -- the logo; hidden when folded
 local controls_view         -- pin panel, XY parameters and cards; hidden when folded
+local frame                 -- the window's frame: refit() and replace()
 local displayed_device -- "track:device" of the device shown in the popup
 
 -- The current skin's XY, created on first use.
@@ -41,6 +42,13 @@ end
 local function display_name(device)
   if device.display_name ~= "" then return device.display_name end
   return device.name
+end
+
+-- The number an XY shows on its button and in its headings.
+local function xy_number(panel)
+  for i, candidate in ipairs(pins.panels()) do
+    if candidate == panel then return i end
+  end
 end
 
 local function status(msg)
@@ -335,7 +343,7 @@ local function build_param_row(cvb, pin, i, p)
   end
   add_endpoint("low", "Set Min")
   add_endpoint("high", "Set Max")
-  range:add_view(window_views.curve_editor(cvb, map, pins.save))
+  range:add_view(window_views.curve_editor(cvb, map, pins.save, function() frame.refit() end))
   return cvb:column {row, range}
 end
 
@@ -419,13 +427,9 @@ end
 -- The current XY: its parameters with their axes, ranges and curves.
 local function build_xy(panel)
   local cvb = renoise.ViewBuilder()
-  local number
-  for i, candidate in ipairs(pins.panels()) do
-    if candidate == panel then number = i end
-  end
   local view, body = theme.panel(cvb, {
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-      cvb:text(theme.text {text = "XY " .. number, font = "bold", width = 240}),
+      cvb:text(theme.text {text = "XY " .. xy_number(panel), font = "bold", width = 240}),
       cvb:button(theme.button {text = "Clear XY",
         tooltip = "Remove this XY: its parameters, slots and reset position. Recorded automation stays.",
         notifier = function() pins.remove_panel(panel) end}),
@@ -470,21 +474,20 @@ end
 
 -- Stored pad positions. Renoise buttons report no right-click, so a
 -- transparent canvas above them reads the mouse button.
-local function build_slots(panel, editable, pad)
+local function build_slots(pvb, panel, pad, look)
   local width, height = background.size / xy.slots, 22
   local cells = {}
-  local row = vb:row {}
+  local row = pvb:row {}
   local function paint(i)
-    local look = panel.slots and panel.slots[i] and theme.accent({}) or theme.button({})
-    cells[i].color, cells[i].secondary_color = look.color, look.secondary_color
+    local style = panel.slots and panel.slots[i] and theme.accent({}, look) or theme.button({}, look)
+    cells[i].color, cells[i].secondary_color = style.color, style.secondary_color
   end
   for i = 1, xy.slots do
-    cells[i] = vb:button {text = tostring(i), width = width, height = height, active = editable}
+    cells[i] = pvb:button {text = tostring(i), width = width, height = height}
     paint(i)
     row:add_view(cells[i])
   end
-  if not editable then return row end
-  local overlay = vb:canvas {
+  local overlay = pvb:canvas {
     width = background.size, height = height, mode = "transparent", render = function() end,
     tooltip = "Left-click jumps to a stored position. Right-click stores the dot's position."
       .. " With Renoise's record mode on, the jump is written to automation.",
@@ -504,32 +507,18 @@ local function build_slots(panel, editable, pad)
       pins.save()
     end,
   }
-  return vb:stack {row, overlay}
+  return pvb:stack {row, overlay}
 end
 
--- The strip under the pad: the fold toggle and the pad's Auto Reset settings.
--- `editable` is false for the default pad, which has no panel to store them.
+-- The strip under the pad: `lead`, then the pad's Auto Reset settings.
 -- `rest()` sends the pad to its reset position while Auto Reset is on.
-local function build_pad_controls(panel, editable, rest)
-  local folded = renoise.tool().preferences.folded
-  local fold
-  fold = vb:button(theme.button {
-    text = folded.value and "Unfold" or "Fold", width = 58,
-    tooltip = "Show only the XY pad, or the whole window",
-    notifier = function()
-      folded.value = not folded.value
-      fold.text = folded.value and "Unfold" or "Fold"
-      header_view.visible = not folded.value
-      controls_view.visible = not folded.value
-      window_views.refit()
-    end,
-  })
+local function build_pad_controls(pvb, panel, rest, look, lead)
   local boxes = {}
   local capturing = false -- the capture button fills both boxes before applying
   local function reset_box(axis)
     local key = "reset_" .. axis
-    boxes[axis] = vb:valuebox {
-      min = 0, max = 1000, width = 65, steps = {1, 10}, active = editable,
+    boxes[axis] = pvb:valuebox {
+      min = 0, max = 1000, width = 65, steps = {1, 10},
       value = thousandths(panel[key] or 0.5),
       tostring = format_thousandths, tonumber = parse_thousandths,
       tooltip = "Where Auto Reset puts the " .. axis:upper() .. " axis",
@@ -542,10 +531,10 @@ local function build_pad_controls(panel, editable, rest)
     }
     return boxes[axis]
   end
-  return vb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-    fold,
-    vb:checkbox {
-      value = panel.auto_reset == true, active = editable,
+  return pvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
+    lead,
+    pvb:checkbox {
+      value = panel.auto_reset == true,
       tooltip = "Return the pad to the reset position when the mouse button is released",
       notifier = function(on)
         panel.auto_reset = on
@@ -553,11 +542,11 @@ local function build_pad_controls(panel, editable, rest)
         pins.save()
       end,
     },
-    vb:text(theme.text {text = "Auto Reset"}),
-    vb:text(theme.dim {text = "X"}), reset_box("x"),
-    vb:text(theme.dim {text = "Y"}), reset_box("y"),
-    vb:button(theme.button {
-      text = "Set", active = editable,
+    pvb:text(theme.text({text = "Auto Reset"}, look)),
+    pvb:text(theme.dim({text = "X"}, look)), reset_box("x"),
+    pvb:text(theme.dim({text = "Y"}, look)), reset_box("y"),
+    pvb:button(theme.button({
+      text = "Set",
       tooltip = "Use the dot's current position as the reset position",
       notifier = function()
         capturing = true
@@ -567,17 +556,131 @@ local function build_pad_controls(panel, editable, rest)
         rest(false)
         pins.save()
       end,
-    }),
+    }, look)),
   }
 end
 
--- One button per XY in that XY's skin colours, then "+" for the next free
--- skin. Showing another XY switches the window to its skin.
-local function build_switcher()
+-- An XY's pad with its slot and Auto Reset strips, in that XY's own skin.
+-- `notifiers` collects the song notifiers that keep the dot following its
+-- parameters; `lead` opens the last strip: Fold in the window, Dock in a float.
+local function build_pad(pvb, panel, notifiers, lead)
+  local look = theme.look(panel.skin)
+  local layer, pad = background.layer(pvb, panel, look, function(x, y, recording, step)
+    xy.move(panel, x, y, pins.list(), pins.resolve, recording, step)
+  end, pins.save)
+  xy.follow(panel, pins.list(), pins.resolve, function(observable, fn)
+    watch(notifiers, observable, fn)
+  end, pad.follow)
+  return pvb:column {spacing = VB.DEFAULT_CONTROL_SPACING,
+    layer, build_slots(pvb, panel, pad, look), build_pad_controls(pvb, panel, pad.rest, look, lead)}
+end
+
+local function build_fold()
+  local folded = renoise.tool().preferences.folded
+  local fold
+  fold = vb:button(theme.button {
+    text = folded.value and "Unfold" or "Fold", width = 58,
+    tooltip = "Show only the XY pad, or the whole window",
+    notifier = function()
+      folded.value = not folded.value
+      fold.text = folded.value and "Unfold" or "Fold"
+      header_view.visible = not folded.value
+      controls_view.visible = not folded.value
+      frame.refit()
+    end,
+  })
+  return fold
+end
+
+-- ---------------------------------------------------------------------------
+-- Floating pads
+-- ---------------------------------------------------------------------------
+
+-- panel -> {dialog, frame, notifiers}: pads out in their own windows. A
+-- floating XY's pad lives only in its float; the window shows a note instead.
+local floats = {}
+local dock -- forward
+
+-- A float's whole content, rebuilt whenever the XY's mappings may have changed.
+local function float_content(panel, float)
+  unwatch_all(float.notifiers)
+  local fvb = renoise.ViewBuilder()
+  return build_pad(fvb, panel, float.notifiers, fvb:button(theme.button({
+    text = "Dock", width = 58, tooltip = "Put this pad back in the Dial Ranger window",
+    notifier = function() dock(panel) end,
+  }, theme.look(panel.skin))))
+end
+
+local function close_float(panel)
+  local float = floats[panel]
+  floats[panel] = nil
+  unwatch_all(float.notifiers)
+  if float.dialog.visible then float.dialog:close() end
+end
+
+local function close_floats()
+  local open = {}
+  for panel in pairs(floats) do open[#open + 1] = panel end
+  for _, panel in ipairs(open) do close_float(panel) end
+end
+
+dock = function(panel)
+  if floats[panel] then close_float(panel) end
+  if M.visible() then M.rebuild() end
+end
+
+local function float_out(panel)
+  local float = {notifiers = {}}
+  floats[panel] = float
+  local root
+  root, float.frame = window_views.frame(renoise.ViewBuilder(), float_content(panel, float),
+    theme.look(panel.skin))
+  -- returning the key hands it back to Renoise's global shortcuts
+  float.dialog = renoise.app():show_custom_dialog("Dial Ranger  ·  XY " .. xy_number(panel), root,
+    function(_, key) return key end)
+  M.rebuild()
+end
+
+-- Floats follow the model: a closed window or a cleared XY ends its float,
+-- the others take the XY's current mappings.
+local function refresh_floats()
+  local open = {}
+  for panel in pairs(floats) do open[#open + 1] = panel end
+  for _, panel in ipairs(open) do
+    local float = floats[panel]
+    if float.dialog.visible and pins.panel(panel.skin) == panel then
+      float.frame.replace(float_content(panel, float))
+    else
+      close_float(panel)
+    end
+  end
+end
+
+-- Stands in for the pad of an XY that is out in its own window.
+local function build_floating_note(panel)
+  return vb:column {spacing = VB.DEFAULT_CONTROL_SPACING,
+    vb:text(theme.dim {text = "This XY's pad is in its own window."}),
+    vb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
+      build_fold(),
+      vb:button(theme.button {
+        text = "Dock", width = 58, tooltip = "Put the pad back here",
+        notifier = function() dock(panel) end,
+      }),
+    },
+  }
+end
+
+-- ---------------------------------------------------------------------------
+-- Window
+-- ---------------------------------------------------------------------------
+
+-- One button per XY in that XY's skin colours, "+" for the next free skin and
+-- Float for the XY on show. Showing another XY switches the window's skin.
+local function build_switcher(current)
   local row = vb:row {spacing = VB.DEFAULT_CONTROL_SPACING}
   for i, panel in ipairs(pins.panels()) do
     local look = theme.look(panel.skin)
-    local shown = panel.skin == theme.current()
+    local shown = panel == current
     row:add_view(vb:button {
       text = tostring(i), width = 28, height = 22,
       color = shown and look.accent or look.button,
@@ -598,6 +701,11 @@ local function build_switcher()
       M.set_skin(free)
     end,
   }))
+  row:add_view(vb:button(theme.button {
+    text = "Float", height = 22, active = floats[current] == nil,
+    tooltip = "Open this XY's pad in its own window",
+    notifier = function() float_out(current) end,
+  }))
   return row
 end
 
@@ -610,13 +718,19 @@ local function settle_skin()
   return true
 end
 
+-- Drop the window's song notifiers (cards + selection).
+local function detach_window()
+  unwatch_all(card_notifiers)
+  unwatch_all(sel_notifiers)
+end
+
 -- Views take their colours when built, so a new skin rebuilds the window's
 -- content in place. The chosen parameter survives the swap.
 local function restyle()
   local chosen = vb.views.param_popup.value
-  M.detach_all()
+  detach_window()
   card_children = {} -- the new root owns fresh card containers
-  window_views.replace(build_root())
+  frame.replace(build_root())
   M.rebuild()
   vb.views.param_popup.value = math.min(chosen, #vb.views.param_popup.items)
 end
@@ -624,21 +738,23 @@ end
 function M.rebuild()
   if not vb then return end
   if settle_skin() then return restyle() end
+  local current = pins.panel(theme.current())
+  if not current then
+    -- The window always shows an XY. Making a project's first one comes
+    -- straight back here through pins.on_change.
+    pins.create_panel(theme.current())
+    return
+  end
   clear_cards()
   if pins.prune() then pins.save() end
-  local current = pins.panel(theme.current())
-  local active = current or {}
-  local layer, pad = background.layer(vb, active, function(x, y, recording, step)
-    xy.move(active, x, y, pins.list(), pins.resolve, recording, step)
-  end, pins.save)
-  add_card(pad_view, build_switcher())
-  add_card(pad_view, layer)
-  add_card(pad_view, build_slots(active, current ~= nil, pad))
-  add_card(pad_view, build_pad_controls(active, current ~= nil, pad.rest))
-  xy.follow(active, pins.list(), pins.resolve, function(observable, fn)
-    watch(card_notifiers, observable, fn)
-  end, pad.follow)
-  if current then add_card(xy_view, build_xy(current)) end
+  refresh_floats()
+  add_card(pad_view, build_switcher(current))
+  if floats[current] then
+    add_card(pad_view, build_floating_note(current))
+  else
+    add_card(pad_view, build_pad(vb, current, card_notifiers, build_fold()))
+  end
+  add_card(xy_view, build_xy(current))
   for _, pin in ipairs(pins.list()) do
     if not pin.panel then
       local track, device = pins.resolve(pin)
@@ -647,7 +763,7 @@ function M.rebuild()
   end
   attach_selection()
   refresh_selection()
-  window_views.refit()
+  frame.refit()
 end
 
 -- ---------------------------------------------------------------------------
@@ -658,10 +774,10 @@ function M.visible()
   return dlg ~= nil and dlg.visible
 end
 
--- Drop every song notifier (cards + selection). Call before the song goes away.
+-- Drop every song notifier and close the floats. Call before the song goes away.
 function M.detach_all()
-  unwatch_all(card_notifiers)
-  unwatch_all(sel_notifiers)
+  detach_window()
+  close_floats()
 end
 
 function M.show()
@@ -669,11 +785,12 @@ function M.show()
     dlg:show()
     return
   end
-  M.detach_all()
+  detach_window()
   card_children = {} -- The new root owns a fresh cards_view.
   settle_skin()
   local content = build_root()
-  local root = window_views.frame(vb, content)
+  local root
+  root, frame = window_views.frame(vb, content)
   -- returning the key hands it back to Renoise's global shortcuts
   dlg = renoise.app():show_custom_dialog("Dial Ranger", root,
     function(_, key) return key end)
@@ -690,7 +807,8 @@ pins.on_change(function()
   if M.visible() then
     M.rebuild()
   else
-    M.detach_all()
+    detach_window()
+    refresh_floats()
   end
 end)
 

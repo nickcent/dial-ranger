@@ -65,7 +65,7 @@ local vb = {stack = function(_, views) return views end,
 local function event(kind, button, x, y)
   handler {type = kind, button = button, position = {x = x, y = y}}
 end
-local _, pad = require("pad_background").layer(vb, panel, function(x, y, recording, step)
+local _, pad = require("pad_background").layer(vb, panel, {}, function(x, y, recording, step)
   xy.move(panel, x, y, pins.list(), pins.resolve, recording, step)
 end, function() end)
 event("down", "left", 0, 0)

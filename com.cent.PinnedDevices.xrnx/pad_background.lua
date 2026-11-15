@@ -1,10 +1,8 @@
--- The XY pad: a grid drawn in the skin's colours, and above it a transparent
+-- The XY pad: a grid drawn in its skin's colours, and above it a transparent
 -- canvas that owns the gestures and draws the dot.
-local theme = require("theme")
 local M = {}
 
-local function draw_grid(ctx, size)
-  local palette = theme.palette
+local function draw_grid(ctx, size, palette)
   ctx.fill_color = palette.pad
   ctx:fill_rect(0, 0, size, size)
   ctx.stroke_color, ctx.line_width = palette.grid, 1
@@ -39,9 +37,10 @@ end
 
 M.size = 400 -- pad edge in pixels; the strips under the pad match it
 
--- Returns the pad view and its controls: `follow(axis, position)` for outside
--- writers, `jump(x, y, recording, step)` and `rest(recording)` to place it.
-function M.layer(vb, panel, move, save)
+-- Returns the pad view, drawn in the palette `look`, and its controls:
+-- `follow(axis, position)` for outside writers, `jump(x, y, recording, step)`
+-- and `rest(recording)` to place it.
+function M.layer(vb, panel, look, move, save)
   local size = M.size
   local held
   local moving -- true while the pad itself writes the parameters
@@ -83,7 +82,7 @@ function M.layer(vb, panel, move, save)
     cursor:update()
   end
   local grid = vb:canvas {width = size, height = size, mode = "plain",
-    render = function(ctx) draw_grid(ctx, size) end}
+    render = function(ctx) draw_grid(ctx, size, look) end}
   cursor = vb:canvas {width = size, height = size, mode = "transparent",
     tooltip = "Left-drag to adjust. Right-drag to record both axes.",
     mouse_events = {"down", "drag", "up"}, mouse_handler = mouse, render = function(ctx)
@@ -91,9 +90,9 @@ function M.layer(vb, panel, move, save)
     local y = math.max(6, math.min(size - 6, (1 - (panel.y or 0.5)) * (size - 1)))
     ctx:begin_path()
     ctx:arc(x, y, 5, 0, 2 * math.pi)
-    ctx.fill_color = theme.palette.cursor
+    ctx.fill_color = look.cursor
     ctx:fill()
-    ctx.stroke_color, ctx.line_width = theme.palette.pad, 2
+    ctx.stroke_color, ctx.line_width = look.pad, 2
     ctx:stroke()
   end}
   -- Automation and other writers move the cursor; the pad's own moves win.
