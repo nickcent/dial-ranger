@@ -70,7 +70,7 @@ end
 
 local function on_new_document()
   pins.reset()
-  pins.restore(renoise.song().file_name, theme.keys())
+  pins.restore(renoise.song().file_name, theme.order)
   pins.attach_song()
   if dashboard.visible() then dashboard.rebuild() end
 end

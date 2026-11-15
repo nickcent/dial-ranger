@@ -44,10 +44,11 @@ local function display_name(device)
   return device.name
 end
 
--- The number an XY shows on its button and in its headings.
+-- The number an XY shows on its button and in its headings: its skin's place
+-- in the order, so it never changes.
 local function xy_number(panel)
-  for i, candidate in ipairs(pins.panels()) do
-    if candidate == panel then return i end
+  for i, key in ipairs(theme.order) do
+    if key == panel.skin then return i end
   end
 end
 
@@ -678,20 +679,22 @@ end
 -- Float for the XY on show. Showing another XY switches the window's skin.
 local function build_switcher(current)
   local row = vb:row {spacing = VB.DEFAULT_CONTROL_SPACING}
-  for i, panel in ipairs(pins.panels()) do
-    local look = theme.look(panel.skin)
-    local shown = panel == current
-    row:add_view(vb:button {
-      text = tostring(i), width = 28, height = 22,
-      color = shown and look.accent or look.button,
-      secondary_color = shown and look.accent_text or look.accent,
-      tooltip = shown and "This XY" or "Show this XY",
-      notifier = function() M.set_skin(panel.skin) end,
-    })
-  end
   local free
-  for _, key in ipairs(theme.keys()) do
-    if not pins.panel(key) then free = key; break end
+  for i, key in ipairs(theme.order) do
+    local panel = pins.panel(key)
+    if panel then
+      local look = theme.look(key)
+      local shown = panel == current
+      row:add_view(vb:button {
+        text = tostring(i), width = 28, height = 22,
+        color = shown and look.accent or look.button,
+        secondary_color = shown and look.accent_text or look.accent,
+        tooltip = shown and "This XY" or "Show this XY",
+        notifier = function() M.set_skin(key) end,
+      })
+    else
+      free = free or key
+    end
   end
   row:add_view(vb:button(theme.button {
     text = "+", width = 28, height = 22, active = free ~= nil,
@@ -709,13 +712,18 @@ local function build_switcher(current)
   return row
 end
 
--- With XYs in the project the window always shows one of them. Returns true
--- when that changed the skin.
+-- With XYs in the project the window always shows one of them: the first in
+-- skin order when the current skin has none. Returns true when that changed
+-- the skin.
 local function settle_skin()
-  local first = pins.panels()[1]
-  if not first or pins.panel(theme.current()) then return false end
-  theme.set(first.skin)
-  return true
+  if pins.panel(theme.current()) then return false end
+  for _, key in ipairs(theme.order) do
+    if pins.panel(key) then
+      theme.set(key)
+      return true
+    end
+  end
+  return false
 end
 
 -- Drop the window's song notifiers (cards + selection).
@@ -740,9 +748,9 @@ function M.rebuild()
   if settle_skin() then return restyle() end
   local current = pins.panel(theme.current())
   if not current then
-    -- The window always shows an XY. Making a project's first one comes
-    -- straight back here through pins.on_change.
-    pins.create_panel(theme.current())
+    -- The window always shows an XY. Making a project's first one, in the
+    -- first skin, comes straight back here through pins.on_change.
+    pins.create_panel(theme.order[1])
     return
   end
   clear_cards()

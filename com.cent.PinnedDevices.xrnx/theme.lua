@@ -46,15 +46,16 @@ local looks = {
   },
 }
 
--- The order new XYs take their skins in; keys match the `skin` preference.
-local order = {"terminal", "renoise", "hardware", "virus", "desert"}
+-- Skin keys in the order XYs take them; a skin's place is its XY's number.
+-- Keys match the `skin` preference.
+M.order = {"hardware", "renoise", "terminal", "desert", "virus"}
 
 local palette
 
 -- Selects the skin stored in the preferences; unknown keys fall back to the first skin.
 function M.load()
   local pref = renoise.tool().preferences.skin
-  if not looks[pref.value] then pref.value = order[1] end
+  if not looks[pref.value] then pref.value = M.order[1] end
   palette = looks[pref.value]
   M.palette = palette
 end
@@ -71,15 +72,6 @@ end
 -- The palette of any skin, for views that show a skin other than the current.
 function M.look(key)
   return looks[key]
-end
-
--- Every skin key, the current skin first.
-function M.keys()
-  local keys = {M.current()}
-  for _, key in ipairs(order) do
-    if key ~= keys[1] then keys[#keys + 1] = key end
-  end
-  return keys
 end
 
 M.load()

@@ -119,7 +119,7 @@ local function restore_panels(file, skins)
 end
 
 -- Appends pins stored for `file`; silent (no save, no listener). `skins`
--- lists every skin key, the current skin first.
+-- lists every skin key in order.
 function M.restore(file, skins)
   if file == nil or file == "" then return end
   local by_id = restore_panels(file, skins)
@@ -181,11 +181,6 @@ function M.set_friction(pin, index, amount)
   if (pin.friction[index] or 0) == amount then return end
   pin.friction[index] = amount > 0 and amount or nil
   M.save()
-end
-
--- Every XY of the project, oldest first.
-function M.panels()
-  return panels
 end
 
 -- The XY shown under `skin`, or nil while that skin has none.
