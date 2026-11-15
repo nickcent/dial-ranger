@@ -7,7 +7,6 @@ local appearance = require("appearance")
 local background = require("pad_background")
 local xy = require("xy")
 local window_views = require("window_views")
-local expanded_panel
 
 local M = {}
 
@@ -22,6 +21,11 @@ local vb = nil               -- root ViewBuilder
 local cards_view = nil       -- row holding the cards
 local panels_view
 local selected_panel
+local updating_target = false
+
+local function destination()
+  return selected_panel or pins.create_panel()
+end
 local card_children = {}     -- views currently inside cards_view
 local card_notifiers = {}    -- { {obs, fn}, ... } song observables per card
 local sel_notifiers = {}     -- { {obs, fn}, ... } selection observables
@@ -71,7 +75,7 @@ local function refresh_selection()
   vb.views.sel_label.text = label
   vb.views.param_popup.items = items
   vb.views.param_popup.value = 1
-  vb.views.add_selected.active = selected_panel ~= nil and dev ~= nil and #dev.parameters > 0
+  vb.views.add_selected.active = dev ~= nil and #dev.parameters > 0
   vb.views.pin_device.active = dev ~= nil
   vb.views.pin_param.active = dev ~= nil and #dev.parameters > 0
 end
@@ -134,15 +138,17 @@ local function build_root()
     vb:button {text = "New panel", width = 90, notifier = function()
       selected_panel = pins.create_panel()
       vb.views.panel_target.value = #pins.panels()
-      refresh_selection()
+      M.rebuild()
     end},
     vb:popup {id = "panel_target", width = 180, items = {"No panels"},
       tooltip = "Destination for Add to panel", notifier = function(index)
+        if updating_target or selected_panel == pins.panels()[index] then return end
         selected_panel = pins.panels()[index]
+        M.rebuild()
       end},
     vb:button {id = "add_selected", text = "Add to panel", width = 100,
       tooltip = "Add the selected DSP parameter to the chosen panel",
-      notifier = function() if selected_panel then pin_selected_param(selected_panel) end end},
+      notifier = function() pin_selected_param(destination()) end},
   })
   panels_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING}
   cards_view = vb:row { id = "cards", spacing = VB.DEFAULT_DIALOG_SPACING }
@@ -150,7 +156,7 @@ local function build_root()
   return vb:column {
     margin = VB.DEFAULT_DIALOG_MARGIN,
     spacing = VB.DEFAULT_DIALOG_SPACING,
-    appearance.header(vb, M.rebuild),
+    appearance.header(vb),
     panel,
     panels_view,
     cards_view,
@@ -265,13 +271,11 @@ local function build_param_row(cvb, pin, i, p)
       notifier = function() pins.unpin_param(pin, i) end,
     },
   }
-  if not pin.panel and #pins.panels() > 0 then
+  if not pin.panel then
     views[#views + 1] = cvb:button {
       text = "+ Panel", tooltip = "Copy this parameter to the chosen panel",
       notifier = function()
-        if selected_panel then
-          pins.pin_param(pin.track_index, pin.device_index, i, selected_panel, pin.friction[i])
-        end
+        pins.pin_param(pin.track_index, pin.device_index, i, destination(), pin.friction[i])
       end,
     }
   end
@@ -412,26 +416,14 @@ local function build_panel(panel)
   local view = cvb:column {
     background = "group", margin = VB.DEFAULT_CONTROL_MARGIN, spacing = VB.DEFAULT_CONTROL_SPACING,
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-      cvb:bitmap {bitmap = appearance.bitmap(), mode = "plain"},
       cvb:button {text = "Panel  ·  " .. panel.name, width = 240, height = 28, color = rgb,
         tooltip = "Edit panel name and colour", notifier = function() edit_panel(panel) end},
-      cvb:button {text = expanded_panel == panel and "Hide XY" or "XY pad",
-        notifier = function()
-          if expanded_panel == panel then expanded_panel = nil else expanded_panel = panel end
-          M.rebuild()
-        end},
       cvb:button {text = "Edit", notifier = function() edit_panel(panel) end},
       cvb:button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end},
     },
   }
   local rows = cvb:column {spacing = VB.DEFAULT_CONTROL_SPACING}
-  local body = cvb:row {spacing = VB.DEFAULT_DIALOG_SPACING, rows}
-  view:add_view(body)
-  if expanded_panel == panel then
-    body:add_view(background.layer(cvb, panel, function(x, y, recording)
-      xy.move(panel, x, y, pins.list(), pins.resolve, recording)
-    end, pins.save))
-  end
+  view:add_view(rows)
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
       local track, device = pins.resolve(source)
@@ -475,23 +467,26 @@ function M.rebuild()
   for i, panel in ipairs(pins.panels()) do
     items[i] = panel.name
     if panel == selected_panel then target = i end
-    add_card(panels_view, build_panel(panel))
+
   end
+  updating_target = true
   vb.views.panel_target.items = #items > 0 and items or {"No panels"}
   vb.views.panel_target.value = target
   vb.views.panel_target.active = #items > 0
+  updating_target = false
   selected_panel = pins.panels()[target]
+  local active = selected_panel or {}
+  add_card(panels_view, background.layer(vb, active, function(x, y, recording)
+    xy.move(active, x, y, pins.list(), pins.resolve, recording)
+  end, pins.save))
+  for _, panel in ipairs(pins.panels()) do
+    add_card(panels_view, build_panel(panel))
+  end
   for _, pin in ipairs(pins.list()) do
     if not pin.panel then
       local track, device = pins.resolve(pin)
       add_card(cards_view, build_card(pin, track, device))
     end
-  end
-  if #card_children == 0 then
-    add_card(cards_view, vb:text {
-      text = "No pinned devices. Select a device in the DSP chain and press Pin.",
-      style = "disabled",
-    })
   end
   attach_selection()
   refresh_selection()
