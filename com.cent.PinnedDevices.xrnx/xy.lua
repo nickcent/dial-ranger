@@ -3,12 +3,17 @@
 local scaling = require("scaling")
 local M = {}
 
-function M.write(p, value)
+local function mapped_value(p, value)
   local low, high, quantum = p.value_min, p.value_max, p.value_quantum
   value = math.max(low, math.min(high, value))
   if quantum > 0 and value ~= high then
     value = math.min(high, low + math.floor((value - low) / quantum + 0.5) * quantum)
   end
+  return value
+end
+
+function M.write(p, value)
+  value = mapped_value(p, value)
   if value ~= p.value then
     if p.is_automatable then p:record_value(value) else p.value = value end
   end
@@ -32,7 +37,15 @@ function M.capture(map, endpoint, p)
   map[endpoint .. "_text"] = p.value_string
 end
 
-function M.move(panel, x, y, pins, resolve)
+function M.move(panel, x, y, pins, resolve, recording)
+  local pattern, line
+  if recording then
+    local song = renoise.song()
+    local transport = song.transport
+    local pos = transport.playing and transport.playback_pos or transport.edit_pos
+    pattern = song.patterns[song.sequencer.pattern_sequence[pos.sequence]]
+    line = pos.line
+  end
   if x ~= nil then panel.x = x end
   if y ~= nil then panel.y = y end
   for _, source in ipairs(pins) do
@@ -45,7 +58,13 @@ function M.move(panel, x, y, pins, resolve)
           local p = device.parameters[index]
           if p and position ~= nil then
             local t = scaling.apply(map.scaling, position)
-            M.write(p, map.low + (map.high - map.low) * t)
+            local value = mapped_value(p, map.low + (map.high - map.low) * t)
+            if p.value ~= value then p.value = value end
+            if recording and p.is_automatable and p.value_max > p.value_min then
+              local lane = pattern.tracks[source.track_index]
+              local envelope = lane:find_automation(p) or lane:create_automation(p)
+              envelope:add_point_at(line, (value - p.value_min) / (p.value_max - p.value_min))
+            end
           end
         end
       end

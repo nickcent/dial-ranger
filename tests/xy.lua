@@ -38,6 +38,43 @@ setup(first, 1, "x", a, -2, 2)
 setup(first, 2, "y", b, -2, 2)
 setup(second, 1, "x", c, 2, -2)
 setup(second, 2, "y", d, 1, 1)
+-- Exercise the installed pad's event handler with two real mapping axes.
+local envelopes = {}
+local lane = {
+  find_automation = function(_, p) return envelopes[p] end,
+  create_automation = function(_, p)
+    envelopes[p] = {add_point_at = function(self, line, value) self[line] = value end}
+    return envelopes[p]
+  end,
+}
+song.patterns = {{tracks = {lane, lane}}}
+song.sequencer = {pattern_sequence = {1}}
+song.transport = {playing = false, edit_pos = {sequence = 1, line = 2},
+  playback_pos = {sequence = 1, line = 5}}
+local handler
+local vb = {bitmap = function() return {} end, stack = function(_, views) return views end,
+  canvas = function(_, view) handler = view.mouse_handler; return {update = function() end} end}
+local function event(kind, button, x, y)
+  handler {type = kind, button = button, position = {x = x, y = y}}
+end
+require("pad_background").layer(vb, panel, function(x, y, recording)
+  xy.move(panel, x, y, pins.list(), pins.resolve, recording)
+end, function() end)
+event("down", "left", 0, 0)
+event("drag", "left", 399, 399)
+event("up", "left", 399, 399)
+assert(a.value == 2 and b.value == -2 and not next(envelopes))
+event("down", "right", 399, 399)
+assert(envelopes[a][2] == 1 and envelopes[b][2] == 0)
+song.transport.playing = true
+event("drag", "right", 0, 399)
+assert(envelopes[a][5] == 0 and envelopes[b][5] == 0)
+event("up", "right", 0, 399)
+song.transport.playback_pos.line = 6
+event("drag", "right", 399, 0)
+assert(not envelopes[a][6] and not envelopes[b][6] and a.value == -2)
+-- Restore the captured endpoint values for the original per-axis tests.
+a.value, b.value, c.value, d.value = 2, 2, -2, 1
 local function move(x, y) xy.move(panel, x, y, pins.list(), pins.resolve) end
 -- Two parameters share X with opposing endpoint directions. A picker edit
 -- changes only the transfer function used by the next X movement.

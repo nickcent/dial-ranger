@@ -1,4 +1,4 @@
--- The image is visual only. Renoise's native XY pad receives every gesture.
+-- The transparent canvas owns the gesture above the background image.
 local M = {}
 local default = "images/flux-radar-grid.png"
 local effective = default
@@ -79,12 +79,39 @@ function M.settings(vb)
     vb:button {text = "Choose image…", notifier = choose}, reset}
 end
 
-function M.layer(vb, pad)
+function M.layer(vb, panel, move, save)
+  local size = 400
+  local held
+  local cursor
+  local function mouse(event)
+    if event.type == "down" then
+      if event.button ~= "left" and event.button ~= "right" then return event end
+      held = event.button
+    elseif event.type == "up" then
+      if event.button == held then
+        held = nil
+        save()
+      end
+      return
+    elseif event.type ~= "drag" or not held then
+      return event
+    end
+    local x = math.max(0, math.min(1, event.position.x / (size - 1)))
+    local y = 1 - math.max(0, math.min(1, event.position.y / (size - 1)))
+    local recording = held == "right"
+    if not recording then
+      if x == (panel.x or 0.5) then x = nil end
+      if y == (panel.y or 0.5) then y = nil end
+    end
+    move(x, y, recording)
+    cursor:update()
+  end
   picture = vb:bitmap {bitmap = effective, mode = "plain"}
-  local cursor = vb:canvas {width = 400, height = 400, mode = "transparent", render = function(ctx)
-    local v = pad.value
-    local x = math.max(5, math.min(395, v.x * 400))
-    local y = math.max(5, math.min(395, (1 - v.y) * 400))
+  cursor = vb:canvas {width = size, height = size, mode = "transparent",
+    tooltip = "Left-drag to adjust. Right-drag to record both axes.",
+    mouse_events = {"down", "drag", "up"}, mouse_handler = mouse, render = function(ctx)
+    local x = math.max(5, math.min(size - 5, (panel.x or 0.5) * (size - 1)))
+    local y = math.max(5, math.min(size - 5, (1 - (panel.y or 0.5)) * (size - 1)))
     ctx:begin_path()
     ctx:arc(x, y, 4, 0, 2 * math.pi)
     ctx.fill_color = {247, 249, 245}
@@ -92,8 +119,7 @@ function M.layer(vb, pad)
     ctx.stroke_color, ctx.line_width = {16, 21, 24}, 2
     ctx:stroke()
   end}
-  pad:add_notifier(function() cursor:update() end)
-  return vb:stack {pad, picture, cursor}
+  return vb:stack {picture, cursor}
 end
 
 return M

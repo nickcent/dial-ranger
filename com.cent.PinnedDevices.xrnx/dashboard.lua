@@ -428,21 +428,9 @@ local function build_panel(panel)
   local body = cvb:row {spacing = VB.DEFAULT_DIALOG_SPACING, rows}
   view:add_view(body)
   if expanded_panel == panel then
-    local pad = cvb:xypad {width = 400, height = 400,
-      value = {x = panel.x or 0.5, y = panel.y or 0.5}}
-    -- Register after construction. Restoring a position must never move a DSP.
-    local previous = pad.value
-    pad:add_notifier(function(value)
-      local x, y
-      if value.x ~= previous.x then x = value.x end
-      if value.y ~= previous.y then y = value.y end
-      previous = {x = value.x, y = value.y}
-      if x ~= nil or y ~= nil then
-        xy.move(panel, x, y, pins.list(), pins.resolve)
-        pins.save()
-      end
-    end)
-    body:add_view(background.layer(cvb, pad))
+    body:add_view(background.layer(cvb, panel, function(x, y, recording)
+      xy.move(panel, x, y, pins.list(), pins.resolve, recording)
+    end, pins.save))
   end
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
