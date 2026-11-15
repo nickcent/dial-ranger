@@ -6,7 +6,6 @@ local pins = require("pins")
 local appearance = require("appearance")
 local background = require("pad_background")
 local theme = require("theme")
-local variant = require("variant")
 local xy = require("xy")
 local window_views = require("window_views")
 
@@ -178,7 +177,7 @@ local function build_root()
   -- Controls and pinned parameters on the left, the XY pad on the right.
   return vb:column {
     spacing = VB.DEFAULT_DIALOG_SPACING,
-    appearance.header(vb),
+    appearance.header(vb, function(key) M.set_skin(key) end),
     vb:row {
       spacing = VB.DEFAULT_DIALOG_SPACING,
       vb:column {spacing = VB.DEFAULT_DIALOG_SPACING, panel, panels_view, cards_view},
@@ -535,9 +534,19 @@ function M.show()
   local content = build_root()
   local root = window_views.frame(vb, content)
   -- returning the key hands it back to Renoise's global shortcuts
-  dlg = renoise.app():show_custom_dialog(variant.name, root,
+  dlg = renoise.app():show_custom_dialog("Dial Ranger", root,
     function(_, key) return key end)
   M.rebuild()
+end
+
+-- Views take their colours when built, so a new skin reopens the window.
+function M.set_skin(key)
+  if key == theme.current() then return end
+  theme.set(key)
+  if M.visible() then
+    dlg:close()
+    M.show()
+  end
 end
 
 pins.on_change(function()

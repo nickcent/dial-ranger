@@ -3,7 +3,6 @@
 
 local pins = require("pins")
 local dashboard = require("dashboard")
-local variant = require("variant")
 
 local tool = renoise.tool()
 
@@ -28,18 +27,18 @@ end
 -- ---------------------------------------------------------------------------
 
 tool:add_menu_entry {
-  name = "Main Menu:Tools:" .. variant.name .. "...",
+  name = "Main Menu:Tools:Dial Ranger...",
   invoke = dashboard.show,
 }
 
 tool:add_menu_entry {
-  name = "DSP Device:Pin Device to " .. variant.name,
+  name = "DSP Device:Pin Device to Dial Ranger",
   invoke = pin_selected_device,
   active = has_selected_device,
 }
 
 tool:add_menu_entry {
-  name = "DSP Device Header:Pin Device to " .. variant.name,
+  name = "DSP Device Header:Pin Device to Dial Ranger",
   invoke = pin_selected_device,
   active = has_selected_device,
 }
@@ -49,17 +48,15 @@ local function show_dashboard(repeated)
 end
 
 tool:add_keybinding {
-  name = "Global:Tools:Show " .. variant.name,
+  name = "Global:Tools:Show Dial Ranger",
   invoke = show_dashboard,
 }
 
 -- Renoise stores shortcut assignments by the full registered name.
-if variant.legacy_keybinding then
-  tool:add_keybinding {
-    name = "Global:Tools:Show Pinned Devices",
-    invoke = show_dashboard,
-  }
-end
+tool:add_keybinding {
+  name = "Global:Tools:Show Pinned Devices",
+  invoke = show_dashboard,
+}
 
 -- ---------------------------------------------------------------------------
 -- Document lifecycle

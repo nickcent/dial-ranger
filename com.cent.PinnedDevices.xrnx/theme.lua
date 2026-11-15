@@ -1,7 +1,6 @@
--- Look palettes. The window paints its own background and panels so the host
--- Renoise theme does not show through; sliders, popups and value boxes are
--- drawn by Renoise and keep the host theme.
-local variant = require("variant")
+-- Skins. The window paints its own background and panels so it stands out
+-- from the host Renoise theme; sliders, popups and value boxes are drawn by
+-- Renoise and keep the host theme.
 local M = {}
 
 local looks = {
@@ -37,18 +36,36 @@ local looks = {
     pad = {10, 6, 6}, grid = {226, 30, 36, 34}, ring = {226, 30, 36, 120},
     cross = {226, 30, 36, 210}, corner = {238, 228, 228}, cursor = {255, 255, 255},
   },
-  light = {
-    background = {238, 236, 230}, panel = {249, 248, 244}, border = {198, 195, 188},
-    text = {32, 32, 30}, dim = {112, 112, 106},
-    button = {224, 221, 213}, button_text = {32, 32, 30},
-    accent = {32, 32, 30}, accent_text = {249, 248, 244},
-    pad = {250, 249, 246}, grid = {32, 32, 30, 22}, ring = {32, 32, 30, 70},
-    cross = {32, 32, 30, 150}, corner = {32, 32, 30}, cursor = {32, 32, 30},
-  },
 }
 
-local palette = looks[variant.look] or error("unknown look: " .. tostring(variant.look))
-M.palette = palette
+-- Popup order and labels; keys match the `skin` preference.
+M.skins = {
+  {key = "terminal", label = "Terminal"},
+  {key = "renoise", label = "Renoise"},
+  {key = "hardware", label = "Hardware"},
+  {key = "virus", label = "Virus"},
+}
+
+local palette
+
+-- Selects the skin stored in the preferences; unknown keys fall back to the first skin.
+function M.load()
+  local pref = renoise.tool().preferences.skin
+  if not looks[pref.value] then pref.value = M.skins[1].key end
+  palette = looks[pref.value]
+  M.palette = palette
+end
+
+function M.set(key)
+  renoise.tool().preferences.skin.value = key
+  M.load()
+end
+
+function M.current()
+  return renoise.tool().preferences.skin.value
+end
+
+M.load()
 
 -- Property helpers: fill in themed colours unless the caller set them.
 function M.text(props)

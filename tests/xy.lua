@@ -14,7 +14,7 @@ local tool = {}
 renoise = {song = function() return song end, tool = function() return tool end,
   app = function() return {show_status = function() end} end,
   Document = {create = function() return function()
-    return {pins = {value = "xy.xrns\t1\t1\tFilter\tdevice\t"}}
+    return {pins = {value = "xy.xrns\t1\t1\tFilter\tdevice\t"}, skin = {value = "terminal"}}
   end end}}
 local pins, xy = require("pins"), require("xy")
 pins.restore(song.file_name)
