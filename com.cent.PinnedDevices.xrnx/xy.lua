@@ -19,7 +19,7 @@ function M.write(p, value)
   end
 end
 
-function M.assign(source, index, axis, p)
+function M.assign(source, index, axis, p, use_full_range)
   if not source.maps then source.maps = {} end
   if not axis then
     source.maps[index] = nil
@@ -28,6 +28,10 @@ function M.assign(source, index, axis, p)
   local map = source.maps[index] or {
     scaling = scaling.linear, low = p.value, high = p.value, low_text = p.value_string, high_text = p.value_string,
   }
+  if use_full_range and not source.maps[index] then
+    map.low, map.high = p.value_min, p.value_max
+    map.low_text, map.high_text = tostring(map.low), tostring(map.high)
+  end
   map.axis = axis
   source.maps[index] = map
 end

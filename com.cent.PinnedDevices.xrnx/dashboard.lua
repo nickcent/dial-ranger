@@ -22,6 +22,7 @@ local cards_view = nil       -- row holding the cards
 local panels_view
 local selected_panel
 local updating_target = false
+local displayed_device
 
 local function destination()
   return selected_panel or pins.create_panel()
@@ -64,18 +65,21 @@ local function refresh_selection()
   if not vb then return end
   local s = song()
   local dev = s.selected_track_device
-  local label = "Select a device in the DSP chain"
-  local items = { "—" }
+  local index = dev == displayed_device and vb.views.param_popup.value or 1
+  displayed_device = dev
+  local items = {}
   if dev then
-    label = ("Selected: %s · %s"):format(s.selected_track.name, display_name(dev))
-    items = {}
     for i, p in ipairs(dev.parameters) do items[i] = p.name end
-    if #items == 0 then items = { "—" } end
   end
-  vb.views.sel_label.text = label
-  vb.views.param_popup.items = items
-  vb.views.param_popup.value = 1
-  vb.views.add_selected.active = dev ~= nil and #dev.parameters > 0
+  local available = #items > 0
+  vb.views.track_name.text = s.selected_track.name
+  vb.views.device_name.text = dev and display_name(dev) or "Select a device in the DSP chain"
+  vb.views.device_name.tooltip = vb.views.device_name.text
+  vb.views.param_popup.items = available and items or {"No parameters"}
+  vb.views.param_popup.value = math.min(index, #vb.views.param_popup.items)
+  vb.views.param_popup.active = available
+  vb.views.assign_x.active = available
+  vb.views.assign_y.active = available
   vb.views.pin_device.active = dev ~= nil
   vb.views.pin_param.active = dev ~= nil and #dev.parameters > 0
 end
@@ -95,6 +99,20 @@ local function pin_selected_param(panel)
   pins.pin_param(s.selected_track_index, s.selected_track_device_index, idx, panel)
 end
 
+local function assign_selected(axis)
+  local s = song()
+  local dev = s.selected_track_device
+  local index = vb.views.param_popup.value
+  local parameter = dev and dev.parameters[index]
+  if not parameter then return end
+  local panel = destination()
+  local source = pins.pin_param(s.selected_track_index, s.selected_track_device_index, index, panel)
+  xy.assign(source, index, axis, parameter, true)
+  pins.save()
+  M.rebuild()
+  status(parameter.name .. " assigned to " .. axis:upper() .. " on " .. panel.name)
+end
+
 local function attach_selection()
   if #sel_notifiers > 0 then return end
   local s = song()
@@ -109,15 +127,21 @@ local function build_root()
     background = "group",
     margin = VB.DEFAULT_CONTROL_MARGIN,
     spacing = VB.DEFAULT_CONTROL_SPACING,
-    vb:text { id = "sel_label", text = "", width = 398, font = "bold" },
+    vb:row {vb:text {text = "Track", width = 76}, vb:text {id = "track_name", width = 330}},
+    vb:row {vb:text {text = "Device", width = 76}, vb:text {id = "device_name", width = 330, font = "bold"}},
     vb:row {
       spacing = VB.DEFAULT_CONTROL_SPACING,
+      vb:text {text = "Parameter", width = 76},
+      vb:popup {id = "param_popup", items = {"No parameters"}, width = 220},
+      vb:button {id = "assign_x", text = "Assign to X", notifier = function() assign_selected("x") end},
+      vb:button {id = "assign_y", text = "Assign to Y", notifier = function() assign_selected("y") end},
+    },
+    vb:row {
       vb:button {
         id = "pin_device", text = "Pin device", width = 90,
         tooltip = "Pin the selected device with all its parameters",
         notifier = pin_selected_device,
       },
-      vb:popup { id = "param_popup", items = { "—" }, width = 180 },
       vb:button {
         id = "pin_param", text = "Pin parameter", width = 100,
         tooltip = "Pin only the chosen parameter of the selected device",
@@ -141,14 +165,11 @@ local function build_root()
       M.rebuild()
     end},
     vb:popup {id = "panel_target", width = 180, items = {"No panels"},
-      tooltip = "Destination for Add to panel", notifier = function(index)
+      tooltip = "Active XY pad for parameter assignments", notifier = function(index)
         if updating_target or selected_panel == pins.panels()[index] then return end
         selected_panel = pins.panels()[index]
         M.rebuild()
       end},
-    vb:button {id = "add_selected", text = "Add to panel", width = 100,
-      tooltip = "Add the selected DSP parameter to the chosen panel",
-      notifier = function() pin_selected_param(destination()) end},
   })
   panels_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING}
   cards_view = vb:row { id = "cards", spacing = VB.DEFAULT_DIALOG_SPACING }
@@ -470,7 +491,7 @@ function M.rebuild()
 
   end
   updating_target = true
-  vb.views.panel_target.items = #items > 0 and items or {"No panels"}
+  vb.views.panel_target.items = #items > 0 and items or {"Default XY pad"}
   vb.views.panel_target.value = target
   vb.views.panel_target.active = #items > 0
   updating_target = false

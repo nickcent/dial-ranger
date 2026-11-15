@@ -24,6 +24,12 @@ local first = pins.pin_param(1, 1, 1, panel)
 pins.pin_param(1, 1, 2, panel)
 local second = pins.pin_param(2, 1, 1, panel)
 pins.pin_param(2, 1, 2, panel)
+local direct = {}
+xy.assign(direct, 1, "x", a, true)
+assert(direct.maps[1].low == -2 and direct.maps[1].high == 2 and a.value == 0)
+direct.maps[1].low = -1
+xy.assign(direct, 1, "y", a, true)
+assert(direct.maps[1].axis == "y" and direct.maps[1].low == -1)
 local function setup(source, index, axis, p, low, high)
   xy.assign(source, index, axis, p)
   local map = source.maps[index]
