@@ -4,6 +4,8 @@ A Renoise tool that keeps chosen device parameters in one window, lets you
 tune them with a slowed-down mouse, and plays captured ranges together on XY
 pads that record into automation.
 
+![The Dial Ranger window: three parameters from two devices on one XY pad](docs/dial-ranger-window.png)
+
 Needs Renoise 3.5 or newer. This release was tested with Renoise 3.5.4 on
 Windows; macOS and Linux have not been checked.
 
@@ -82,6 +84,8 @@ position.
 **Float** opens the pad of the XY on show in its own window, in that XY's
 colour; every XY can float at once. **Dock** puts the pad back. **Fold** hides
 everything except the pad and its strips.
+
+<img src="docs/dial-ranger-float.png" width="380" alt="An XY pad floating in its own window">
 
 ## Where the setup is kept
 
