@@ -8,6 +8,11 @@
 --   params = { integer, ... },    -- sorted param indices; empty when mode == "device"
 --   friction = { [param_index] = integer thousandths },
 --   device_name = string }        -- device.name at pin time, for restore validation
+--
+-- one panel = one XY: the pad setup shown under one skin. A pin with a
+-- `panel` belongs to that XY instead of a card.
+-- { id = integer, skin = string,           -- skin key, unique per project
+--   x, y, auto_reset, reset_x, reset_y, slots }  -- see xy.lua
 
 local xy = require("xy")
 local M = {}
@@ -25,6 +30,7 @@ local prefs = renoise.Document.create("PinnedDevicesPreferences") {
   pins = "",
   pad_image = "",
   skin = "terminal",
+  folded = false,
 }
 renoise.tool().preferences = prefs
 
@@ -73,7 +79,7 @@ function M.save()
     if f and f ~= file then out[#out + 1] = line end
   end
   for _, panel in ipairs(panels) do
-    out[#out + 1] = table.concat({file, "panel", panel.id, panel.color, panel.name}, "\t")
+    out[#out + 1] = table.concat({file, "panel", panel.id, panel.skin}, "\t")
   end
   for _, p in ipairs(pins) do
     local fields = {
@@ -87,17 +93,38 @@ function M.save()
   prefs.pins.value = table.concat(out, "\n")
 end
 
--- Appends pins stored for `file`; silent (no save, no listener).
-function M.restore(file)
-  if file == nil or file == "" then return end
-  local by_id = {}
+-- Loads the panels stored for `file`. Each keeps its skin. Panels saved
+-- before skins chose the XY, when they had a colour and a name instead, take
+-- the free skins in `skins` order; any left over are dropped.
+local function restore_panels(file, skins)
+  local by_id, free, unplaced = {}, {}, {}
+  for _, key in ipairs(skins) do free[key] = true end
+  local function adopt(id, skin)
+    free[skin] = nil
+    local panel = {id = tonumber(id), skin = skin}
+    by_id[id] = panel
+    panels[#panels + 1] = panel
+  end
   for line in prefs.pins.value:gmatch("[^\n]+") do
-    local project, id, color, title = line:match("^([^\t]+)\tpanel\t(%d+)\t(%x%x%x%x%x%x)\t([^\t]+)$")
+    local project, id, rest = line:match("^([^\t]+)\tpanel\t(%d+)\t(.+)$")
     if project == file then
-      local panel = {id = tonumber(id), name = title, color = color}
-      by_id[id] = panel
-      panels[#panels + 1] = panel
+      if free[rest] then adopt(id, rest) else unplaced[#unplaced + 1] = id end
     end
+  end
+  for _, id in ipairs(unplaced) do
+    for _, key in ipairs(skins) do
+      if free[key] then adopt(id, key); break end
+    end
+  end
+  return by_id
+end
+
+-- Appends pins stored for `file`; silent (no save, no listener). `skins`
+-- lists every skin key, the current skin first.
+function M.restore(file, skins)
+  if file == nil or file == "" then return end
+  local by_id = restore_panels(file, skins)
+  for line in prefs.pins.value:gmatch("[^\n]+") do
     local f, t, d, name, mode, plist, friction, panel_id =
       line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)\t?(%d*)$")
     if f == file then
@@ -157,26 +184,20 @@ function M.set_friction(pin, index, amount)
   M.save()
 end
 
-function M.panels()
-  return panels
+-- The XY shown under `skin`, or nil while that skin has none.
+function M.panel(skin)
+  for _, panel in ipairs(panels) do
+    if panel.skin == skin then return panel end
+  end
 end
 
-function M.create_panel()
+function M.create_panel(skin)
   local id = 1
   for _, panel in ipairs(panels) do id = math.max(id, panel.id + 1) end
-  local panel = {id = id, name = "Panel " .. id, color = "557647"}
+  local panel = {id = id, skin = skin}
   panels[#panels + 1] = panel
   notify()
   return panel
-end
-
-function M.update_panel(panel, name, color)
-  name = name:gsub("[%c]", " "):match("^%s*(.-)%s*$")
-  color = color:match("^#?(%x%x%x%x%x%x)$")
-  if name == "" or not color then return false end
-  panel.name, panel.color = name, color:upper()
-  notify()
-  return true
 end
 
 function M.remove_panel(panel)

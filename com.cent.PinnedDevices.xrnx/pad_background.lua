@@ -120,16 +120,34 @@ local function draw_grid(ctx, size)
   ctx:stroke_rect(1, 1, size - 2, size - 2)
 end
 
+M.size = 400 -- pad edge in pixels; the strips under the pad match it
+
+-- Returns the pad view and its controls: `follow(axis, position)` for outside
+-- writers, `jump(x, y, recording, step)` and `rest(recording)` to place it.
 function M.layer(vb, panel, move, save)
-  local size = 400
+  local size = M.size
   local held
+  local moving -- true while the pad itself writes the parameters
   local cursor
+  -- Places the pad without a gesture: slot recalls and the Auto Reset return.
+  local function jump(x, y, recording, step)
+    moving = true
+    move(x, y, recording, step)
+    moving = false
+    cursor:update()
+  end
+  -- Like Renoise's XY pad: with Auto Reset on, an idle pad sits at its reset
+  -- position. A recording gesture records the return too.
+  local function rest(recording)
+    if panel.auto_reset then jump(panel.reset_x or 0.5, panel.reset_y or 0.5, recording) end
+  end
   local function mouse(event)
     if event.type == "down" then
       if event.button ~= "left" and event.button ~= "right" then return event end
       held = event.button
     elseif event.type == "up" then
       if event.button == held then
+        rest(held == "right")
         held = nil
         save()
       end
@@ -164,7 +182,13 @@ function M.layer(vb, panel, move, save)
     ctx.stroke_color, ctx.line_width = theme.palette.pad, 2
     ctx:stroke()
   end}
-  return vb:stack {grid, picture, cursor}
+  -- Automation and other writers move the cursor; the pad's own moves win.
+  local function follow(axis, position)
+    if held or moving or panel[axis] == position then return end
+    panel[axis] = position
+    cursor:update()
+  end
+  return vb:stack {grid, picture, cursor}, {follow = follow, jump = jump, rest = rest}
 end
 
 return M

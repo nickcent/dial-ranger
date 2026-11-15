@@ -12,6 +12,15 @@ function M.apply(index, t)
   return 1 - (1 - t) ^ power
 end
 
+-- Inverse of apply: the position that yields `value`.
+function M.invert(index, value)
+  local bend = (index or M.linear) - M.linear
+  if bend == 0 then return value end
+  local root = 1 / 2 ^ math.abs(bend)
+  if bend > 0 then return value ^ root end
+  return 1 - (1 - value) ^ root
+end
+
 -- Invert the same transfer function at x = 0.5. The handle tracks the
 -- pointer vertically while the curve remains monotonic with fixed endpoints.
 function M.from_midpoint(y)

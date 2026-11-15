@@ -2,20 +2,28 @@ local scaling = require("scaling")
 local theme = require("theme")
 local M = {}
 
--- Paints the whole window so the host theme's dialog background stays hidden;
--- the content sets the stack's size as panels expand/shrink.
+-- Paints the whole window so the host theme's dialog background stays hidden.
+-- The canvas gets the content's exact size: a "100%" canvas inside the stack
+-- it sizes would keep the window at its largest size ever. The stack then
+-- autosizes to its children.
+M.refit = function() end
+
 function M.frame(vb, content)
   local palette = theme.palette
-  return vb:stack {
-    vb:canvas {width = "100%", height = "100%", mode = "plain", render = function(ctx)
-      local w, h = ctx.size.width, ctx.size.height
-      ctx.fill_color = palette.background
-      ctx:fill_rect(0, 0, w, h)
-      ctx.stroke_color, ctx.line_width = palette.border, 2
-      ctx:stroke_rect(1, 1, w - 2, h - 2)
-    end},
-    vb:column {margin = 10, content},
-  }
+  local body = vb:column {margin = 10, content}
+  local canvas = vb:canvas {width = 1, height = 1, mode = "plain", render = function(ctx)
+    local w, h = ctx.size.width, ctx.size.height
+    ctx.fill_color = palette.background
+    ctx:fill_rect(0, 0, w, h)
+    ctx.stroke_color, ctx.line_width = palette.border, 2
+    ctx:stroke_rect(1, 1, w - 2, h - 2)
+  end}
+  M.refit = function()
+    body:resize()
+    canvas.width, canvas.height = body.width, body.height
+  end
+  M.refit()
+  return vb:stack {canvas, body}
 end
 
 function M.curve_editor(vb, map, save)
@@ -87,7 +95,10 @@ function M.curve_editor(vb, map, save)
   local editor = vb:column {visible = false, graph, presets}
   return vb:column {
     vb:button(theme.button {text = "Curve", width = 58, tooltip = "Edit mapping curve",
-      notifier = function() editor.visible = not editor.visible end}),
+      notifier = function()
+        editor.visible = not editor.visible
+        M.refit()
+      end}),
     editor,
   }
 end

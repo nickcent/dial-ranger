@@ -20,14 +20,16 @@ local VALUE_WIDTH = 70
 local dlg = nil
 local vb = nil               -- root ViewBuilder
 local cards_view = nil       -- row holding the cards
-local panels_view
+local xy_view               -- the current skin's XY parameters
 local pad_view              -- holds the XY pad, right of the controls
-local selected_panel
-local updating_target = false
+local header_view           -- logo, background and skin settings
+local controls_view         -- pin panel, XY parameters and cards; hidden when folded
 local displayed_device -- "track:device" of the device shown in the popup
 
+-- The current skin's XY, created on first use.
 local function destination()
-  return selected_panel or pins.create_panel()
+  local skin = theme.current()
+  return pins.panel(skin) or pins.create_panel(skin)
 end
 local card_children = {}     -- views currently inside cards_view
 local card_notifiers = {}    -- { {obs, fn}, ... } song observables per card
@@ -114,7 +116,7 @@ local function assign_selected(axis)
   xy.assign(source, index, axis, parameter, true)
   pins.save()
   M.rebuild()
-  status(parameter.name .. " assigned to " .. axis:upper() .. " on " .. panel.name)
+  status(parameter.name .. " assigned to " .. axis:upper())
 end
 
 local function attach_selection()
@@ -151,38 +153,26 @@ local function build_root()
       }),
       vb:button(theme.button {
         text = "Clear all", width = 90,
-        tooltip = "Remove every pin for this project",
+        tooltip = "Remove every pin and every XY for this project",
         notifier = function() pins.clear() end,
       }),
     },
-    vb:row {
-      spacing = VB.DEFAULT_CONTROL_SPACING,
-      vb:button(theme.button {text = "New panel", width = 90, notifier = function()
-        selected_panel = pins.create_panel()
-        vb.views.panel_target.value = #pins.panels()
-        M.rebuild()
-      end}),
-      vb:popup {id = "panel_target", width = 180, items = {"No panels"},
-        tooltip = "Active XY pad for parameter assignments", notifier = function(index)
-          if updating_target or selected_panel == pins.panels()[index] then return end
-          selected_panel = pins.panels()[index]
-          M.rebuild()
-        end},
-    },
   }, 520)
-  pad_view = vb:column {}
-  panels_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING}
+  pad_view = vb:column {spacing = VB.DEFAULT_CONTROL_SPACING}
+  xy_view = vb:column {}
   cards_view = vb:row { id = "cards", spacing = VB.DEFAULT_DIALOG_SPACING }
+
+  local folded = renoise.tool().preferences.folded.value
+  header_view = appearance.header(vb, function(key) M.set_skin(key) end)
+  header_view.visible = not folded
+  controls_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING, visible = not folded,
+    panel, xy_view, cards_view}
 
   -- Controls and pinned parameters on the left, the XY pad on the right.
   return vb:column {
     spacing = VB.DEFAULT_DIALOG_SPACING,
-    appearance.header(vb, function(key) M.set_skin(key) end),
-    vb:row {
-      spacing = VB.DEFAULT_DIALOG_SPACING,
-      vb:column {spacing = VB.DEFAULT_DIALOG_SPACING, panel, panels_view, cards_view},
-      pad_view,
-    },
+    header_view,
+    vb:row {spacing = VB.DEFAULT_DIALOG_SPACING, controls_view, pad_view},
   }
 end
 
@@ -200,6 +190,20 @@ end
 
 local function clamp(value, low, high)
   return math.max(low, math.min(high, value))
+end
+
+-- Value boxes hold thousandths so the display has three exact decimals.
+local function thousandths(value)
+  return clamp(math.floor(value * 1000 + 0.5), 0, 1000)
+end
+
+local function format_thousandths(n)
+  return ("%.3f"):format(n / 1000)
+end
+
+local function parse_thousandths(text)
+  local n = tonumber(text)
+  if n then return thousandths(n) end
 end
 
 local function build_param_row(cvb, pin, i, p)
@@ -278,11 +282,7 @@ local function build_param_row(cvb, pin, i, p)
   end)
   local box = cvb:valuebox {
     min = 0, max = 1000, width = 65, steps = {1, 10}, bind = friction,
-    tostring = function(n) return ("%.3f"):format(n / 1000) end,
-    tonumber = function(text)
-      local n = tonumber(text)
-      if n then return clamp(math.floor(n * 1000 + 0.5), 0, 1000) end
-    end,
+    tostring = format_thousandths, tonumber = parse_thousandths,
     tooltip = "Mouse friction. 1.000 gives 1000 times finer drag control.",
   }
   local views = {
@@ -296,7 +296,7 @@ local function build_param_row(cvb, pin, i, p)
   }
   if not pin.panel then
     views[#views + 1] = cvb:button(theme.button {
-      text = "+ Panel", tooltip = "Copy this parameter to the chosen panel",
+      text = "+ XY", tooltip = "Copy this parameter to this skin's XY",
       notifier = function()
         pins.pin_param(pin.track_index, pin.device_index, i, destination(), pin.friction[i])
       end,
@@ -309,7 +309,7 @@ local function build_param_row(cvb, pin, i, p)
   local axis_index = map and (map.axis == "x" and 2 or 3) or 1
   views[#views + 1] = cvb:popup {
     items = {"XY off", "Axis X", "Axis Y"}, value = axis_index, width = 78,
-    tooltip = "Assign this panel parameter to one axis. Switching axes keeps its range.",
+    tooltip = "Assign this parameter to one axis. Switching axes keeps its range.",
     notifier = function(n)
       xy.assign(pin, i, axes[n], p)
       pins.save()
@@ -412,32 +412,15 @@ local function build_card(pin, track, device)
   return card
 end
 
-local function edit_panel(panel)
-  local editor = renoise.ViewBuilder()
-  local name = editor:textfield {value = panel.name, width = 180}
-  local color = editor:textfield {value = "#" .. panel.color, width = 90}
-  local form = editor:column {
-    margin = VB.DEFAULT_DIALOG_MARGIN, spacing = VB.DEFAULT_CONTROL_SPACING,
-    editor:row {editor:text {text = "Name", width = 90}, name},
-    editor:row {editor:text {text = "Colour (hex)", width = 90}, color},
-  }
-  if renoise.app():show_custom_prompt("Edit panel", form, {"Save", "Cancel"}) == "Save" then
-    if not pins.update_panel(panel, name.value, color.value) then
-      status("enter a name and a six-digit RGB colour")
-    end
-  end
-end
-
-local function build_panel(panel)
+-- The current skin's XY: its parameters with their axes, ranges and curves.
+local function build_xy(panel)
   local cvb = renoise.ViewBuilder()
-  local rgb = {}
-  for pair in panel.color:gmatch("%x%x") do rgb[#rgb + 1] = tonumber(pair, 16) end
   local view, body = theme.panel(cvb, {
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-      cvb:button {text = "Panel  ·  " .. panel.name, width = 240, height = 28, color = rgb,
-        tooltip = "Edit panel name and colour", notifier = function() edit_panel(panel) end},
-      cvb:button(theme.button {text = "Edit", notifier = function() edit_panel(panel) end}),
-      cvb:button(theme.button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end}),
+      cvb:text(theme.text {text = "XY  ·  " .. theme.label(), font = "bold", width = 240}),
+      cvb:button(theme.button {text = "Clear XY",
+        tooltip = "Remove this skin's parameters, slots and reset position. Recorded automation stays.",
+        notifier = function() pins.remove_panel(panel) end}),
     },
   })
   local rows = cvb:column {spacing = VB.DEFAULT_CONTROL_SPACING}
@@ -477,29 +460,125 @@ local function add_card(parent, view)
   card_children[#card_children + 1] = {parent = parent, view = view}
 end
 
+-- Stored pad positions. Renoise buttons report no right-click, so a
+-- transparent canvas above them reads the mouse button.
+local function build_slots(panel, editable, pad)
+  local width, height = background.size / xy.slots, 22
+  local cells = {}
+  local row = vb:row {}
+  local function paint(i)
+    local look = panel.slots and panel.slots[i] and theme.accent({}) or theme.button({})
+    cells[i].color, cells[i].secondary_color = look.color, look.secondary_color
+  end
+  for i = 1, xy.slots do
+    cells[i] = vb:button {text = tostring(i), width = width, height = height, active = editable}
+    paint(i)
+    row:add_view(cells[i])
+  end
+  if not editable then return row end
+  local overlay = vb:canvas {
+    width = background.size, height = height, mode = "transparent", render = function() end,
+    tooltip = "Left-click jumps to a stored position. Right-click stores the dot's position."
+      .. " With Renoise's record mode on, the jump is written to automation.",
+    mouse_events = {"down"},
+    mouse_handler = function(event)
+      local i = clamp(math.floor(event.position.x / width) + 1, 1, xy.slots)
+      local slot = panel.slots and panel.slots[i]
+      if event.button == "right" then
+        panel.slots = panel.slots or {}
+        panel.slots[i] = {x = panel.x or 0.5, y = panel.y or 0.5}
+        paint(i)
+      elseif event.button == "left" and slot then
+        pad.jump(slot.x, slot.y, song().transport.edit_mode, true)
+      else
+        return event
+      end
+      pins.save()
+    end,
+  }
+  return vb:stack {row, overlay}
+end
+
+-- The strip under the pad: the fold toggle and the pad's Auto Reset settings.
+-- `editable` is false for the default pad, which has no panel to store them.
+-- `rest()` sends the pad to its reset position while Auto Reset is on.
+local function build_pad_controls(panel, editable, rest)
+  local folded = renoise.tool().preferences.folded
+  local fold
+  fold = vb:button(theme.button {
+    text = folded.value and "Unfold" or "Fold", width = 58,
+    tooltip = "Show only the XY pad, or the whole window",
+    notifier = function()
+      folded.value = not folded.value
+      fold.text = folded.value and "Unfold" or "Fold"
+      header_view.visible = not folded.value
+      controls_view.visible = not folded.value
+      window_views.refit()
+    end,
+  })
+  local boxes = {}
+  local capturing = false -- the capture button fills both boxes before applying
+  local function reset_box(axis)
+    local key = "reset_" .. axis
+    boxes[axis] = vb:valuebox {
+      min = 0, max = 1000, width = 65, steps = {1, 10}, active = editable,
+      value = thousandths(panel[key] or 0.5),
+      tostring = format_thousandths, tonumber = parse_thousandths,
+      tooltip = "Where Auto Reset puts the " .. axis:upper() .. " axis",
+      notifier = function(n)
+        panel[key] = n / 1000
+        if capturing then return end
+        rest(false)
+        pins.save()
+      end,
+    }
+    return boxes[axis]
+  end
+  return vb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
+    fold,
+    vb:checkbox {
+      value = panel.auto_reset == true, active = editable,
+      tooltip = "Return the pad to the reset position when the mouse button is released",
+      notifier = function(on)
+        panel.auto_reset = on
+        rest(false)
+        pins.save()
+      end,
+    },
+    vb:text(theme.text {text = "Auto Reset"}),
+    vb:text(theme.dim {text = "X"}), reset_box("x"),
+    vb:text(theme.dim {text = "Y"}), reset_box("y"),
+    vb:button(theme.button {
+      text = "Set", active = editable,
+      tooltip = "Use the dot's current position as the reset position",
+      notifier = function()
+        capturing = true
+        boxes.x.value = thousandths(panel.x or 0.5)
+        boxes.y.value = thousandths(panel.y or 0.5)
+        capturing = false
+        rest(false)
+        pins.save()
+      end,
+    }),
+  }
+end
+
 function M.rebuild()
   if not vb then return end
   clear_cards()
   if pins.prune() then pins.save() end
-  local items, target = {}, 1
-  for i, panel in ipairs(pins.panels()) do
-    items[i] = panel.name
-    if panel == selected_panel then target = i end
-
-  end
-  updating_target = true
-  vb.views.panel_target.items = #items > 0 and items or {"Default XY pad"}
-  vb.views.panel_target.value = target
-  vb.views.panel_target.active = #items > 0
-  updating_target = false
-  selected_panel = pins.panels()[target]
-  local active = selected_panel or {}
-  add_card(pad_view, background.layer(vb, active, function(x, y, recording)
-    xy.move(active, x, y, pins.list(), pins.resolve, recording)
-  end, pins.save))
-  for _, panel in ipairs(pins.panels()) do
-    add_card(panels_view, build_panel(panel))
-  end
+  local current = pins.panel(theme.current())
+  local active = current or {}
+  local layer, pad = background.layer(vb, active, function(x, y, recording, step)
+    xy.move(active, x, y, pins.list(), pins.resolve, recording, step)
+  end, pins.save)
+  add_card(pad_view, layer)
+  add_card(pad_view, build_slots(active, current ~= nil, pad))
+  add_card(pad_view, build_pad_controls(active, current ~= nil, pad.rest))
+  xy.follow(active, pins.list(), pins.resolve, function(observable, fn)
+    watch(card_notifiers, observable, fn)
+  end, pad.follow)
+  if current then add_card(xy_view, build_xy(current)) end
   for _, pin in ipairs(pins.list()) do
     if not pin.panel then
       local track, device = pins.resolve(pin)
@@ -508,6 +587,7 @@ function M.rebuild()
   end
   attach_selection()
   refresh_selection()
+  window_views.refit()
 end
 
 -- ---------------------------------------------------------------------------

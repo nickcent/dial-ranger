@@ -65,6 +65,22 @@ function M.current()
   return renoise.tool().preferences.skin.value
 end
 
+-- Label of the current skin, as shown in the skin popup.
+function M.label()
+  for _, skin in ipairs(M.skins) do
+    if skin.key == M.current() then return skin.label end
+  end
+end
+
+-- Every skin key, the current skin first.
+function M.keys()
+  local keys = {M.current()}
+  for _, skin in ipairs(M.skins) do
+    if skin.key ~= keys[1] then keys[#keys + 1] = skin.key end
+  end
+  return keys
+end
+
 M.load()
 
 -- Property helpers: fill in themed colours unless the caller set them.

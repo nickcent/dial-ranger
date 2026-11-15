@@ -2,7 +2,7 @@
 package.path = "com.cent.PinnedDevices.xrnx/?.lua;" .. package.path
 local function param(value, quantum)
   return {value = value, value_min = -2, value_max = 2, value_quantum = quantum or 0,
-    value_string = "original\t100%", is_automatable = true,
+    value_string = "original\t100%", is_automatable = true, value_observable = {},
     record_value = function(self, n) self.value = n end}
 end
 local a, b, c, d = param(0), param(0, 1), param(0), param(0)
@@ -17,9 +17,10 @@ renoise = {song = function() return song end, tool = function() return tool end,
     return {pins = {value = "xy.xrns\t1\t1\tFilter\tdevice\t"}, skin = {value = "terminal"}}
   end end}}
 local pins, xy = require("pins"), require("xy")
-pins.restore(song.file_name)
+local skins = {"terminal", "renoise", "hardware", "virus"}
+pins.restore(song.file_name, skins)
 assert(#pins.list() == 1 and pins.list()[1].mode == "device")
-local panel = pins.create_panel()
+local panel = pins.create_panel("terminal")
 local first = pins.pin_param(1, 1, 1, panel)
 pins.pin_param(1, 1, 2, panel)
 local second = pins.pin_param(2, 1, 1, panel)
@@ -49,7 +50,8 @@ local envelopes = {}
 local lane = {
   find_automation = function(_, p) return envelopes[p] end,
   create_automation = function(_, p)
-    envelopes[p] = {add_point_at = function(self, line, value) self[line] = value end}
+    envelopes[p] = {add_point_at = function(self, line, value) self[line] = value end,
+      has_point_at = function(self, line) return self[line] ~= nil end}
     return envelopes[p]
   end,
 }
@@ -63,8 +65,8 @@ local vb = {bitmap = function() return {} end, stack = function(_, views) return
 local function event(kind, button, x, y)
   handler {type = kind, button = button, position = {x = x, y = y}}
 end
-require("pad_background").layer(vb, panel, function(x, y, recording)
-  xy.move(panel, x, y, pins.list(), pins.resolve, recording)
+local _, pad = require("pad_background").layer(vb, panel, function(x, y, recording, step)
+  xy.move(panel, x, y, pins.list(), pins.resolve, recording, step)
 end, function() end)
 event("down", "left", 0, 0)
 event("drag", "left", 399, 399)
@@ -79,6 +81,42 @@ event("up", "right", 0, 399)
 song.transport.playback_pos.line = 6
 event("drag", "right", 399, 0)
 assert(not envelopes[a][6] and not envelopes[b][6] and a.value == -2)
+-- Auto Reset: releasing a recording gesture returns the pad and records it.
+panel.auto_reset, panel.reset_x, panel.reset_y = true, 0.75, 0.5
+event("down", "right", 0, 399)
+event("up", "right", 0, 399)
+assert(panel.x == 0.75 and panel.y == 0.5 and a.value == 1 and b.value == 0)
+assert(envelopes[a][6] == 0.75 and envelopes[b][6] == 0.5)
+-- A changed reset position moves the resting pad without recording.
+song.transport.playback_pos.line = 7
+panel.reset_x = 0.25
+pad.rest(false)
+assert(panel.x == 0.25 and a.value == -1 and not envelopes[a][7])
+-- A recorded jump holds the old value until just before its line, and a
+-- second jump on that line keeps the hold.
+song.transport.playback_pos.line = 8
+local hold = 8 - 1 / 256
+pad.jump(1, 0.5, true, true)
+assert(envelopes[a][hold] == 0.25 and envelopes[a][8] == 1)
+assert(envelopes[b][hold] == nil and envelopes[b][8] == 0.5)
+pad.jump(0, 0.5, true, true)
+assert(envelopes[a][hold] == 0.25 and envelopes[a][8] == 0 and a.value == -2)
+-- Outside changes, as from automation playback, move the dot. The first
+-- mapping with a range leads its axis and its curve is inverted.
+local watchers = {}
+xy.follow(panel, pins.list(), pins.resolve,
+  function(observable, fn) watchers[observable] = fn end, pad.follow)
+a.value = 1
+watchers[a.value_observable]()
+assert(panel.x == 0.75)
+b.value, d.value = 1, 0.3
+watchers[d.value_observable]()
+assert(panel.y == 0.75)
+first.maps[1].scaling = 5
+a.value = -1.75
+watchers[a.value_observable]()
+assert(math.abs(panel.x - 0.5) < 1e-12)
+first.maps[1].scaling = 3
 -- Restore the captured endpoint values for the original per-axis tests.
 a.value, b.value, c.value, d.value = 2, 2, -2, 1
 local function move(x, y) xy.move(panel, x, y, pins.list(), pins.resolve) end
@@ -117,17 +155,24 @@ local custom = scaling.from_midpoint(0.846)
 first.maps[1].scaling = custom
 first.maps[2].scaling = 5
 local before = a.value
+panel.slots = {[3] = {x = 0.125, y = 1}}
 pins.save()
 assert(a.value == before)
--- Simulate one legacy range at the same time as curved peers.
+-- Simulate one legacy range at the same time as curved peers, and a panel
+-- saved with a colour and a name before skins chose the XY.
 local legacy, replaced = tool.preferences.pins.value:gsub(
   "([^\n]*\txy%-range\t1\t2\t1\t1\t[^\n]*)\t3", "%1", 1)
+assert(replaced == 1)
+legacy, replaced = legacy:gsub("\tpanel\t1\tterminal", "\tpanel\t1\t557647\tPanel 1", 1)
 assert(replaced == 1)
 tool.preferences.pins.value = legacy
 pins.reset()
 a.value, b.value, c.value, d.value = 0.1, 0, 0.4, 0.5
-pins.restore(song.file_name)
-panel, first, second = pins.panels()[1], pins.list()[2], pins.list()[3]
+pins.restore(song.file_name, {"hardware", "terminal", "renoise", "virus"})
+panel, first, second = pins.panel("hardware"), pins.list()[2], pins.list()[3]
+assert(panel and not pins.panel("terminal"))
+assert(panel.auto_reset and panel.reset_x == 0.25 and panel.reset_y == 0.5)
+assert(panel.slots[3].x == 0.125 and panel.slots[3].y == 1 and not panel.slots[1])
 assert(panel.x == 1 and panel.y == 0 and first.maps[1].axis == "y")
 assert(second.maps[1].low == 2 and second.maps[1].high == -2)
 assert(first.maps[1].scaling == custom and first.maps[2].scaling == 5 and second.maps[1].scaling == 3)
@@ -145,4 +190,10 @@ assert(pins.prune() and first.maps[2] == nil)
 song.tracks[2].devices = {}
 move(0.5, 0.5)
 assert(pins.prune() and #pins.list() == 2 and c.value == 0.4)
-print("XY mapping, capture, per-axis writes, quantum, reversed/equal ranges, restore and source cleanup passed")
+-- A saved skin sticks, whichever skin is current at the next load.
+pins.save()
+pins.reset()
+pins.restore(song.file_name, skins)
+assert(pins.panel("hardware") and not pins.panel("terminal"))
+print("XY mapping, capture, per-axis writes, quantum, reversed/equal ranges, auto reset, jumps, "
+  .. "follow, restore, skins and source cleanup passed")

@@ -3,6 +3,9 @@
 local scaling = require("scaling")
 local M = {}
 
+M.slots = 8 -- stored pad positions per panel
+local STEP_LEAD = 1 / 256 -- one unit of Renoise's automation sub-line grid
+
 local function mapped_value(p, value)
   local low, high, quantum = p.value_min, p.value_max, p.value_quantum
   value = math.max(low, math.min(high, value))
@@ -41,7 +44,10 @@ function M.capture(map, endpoint, p)
   map[endpoint .. "_text"] = p.value_string
 end
 
-function M.move(panel, x, y, pins, resolve, recording)
+-- `step` marks a jump: recording holds the old value right up to the line,
+-- so a linear or curved envelope plays the jump instead of a ramp. A hold
+-- already on that line stays, or a repeated jump would flatten the first.
+function M.move(panel, x, y, pins, resolve, recording, step)
   local pattern, line
   if recording then
     local song = renoise.song()
@@ -63,12 +69,54 @@ function M.move(panel, x, y, pins, resolve, recording)
           if p and position ~= nil then
             local t = scaling.apply(map.scaling, position)
             local value = mapped_value(p, map.low + (map.high - map.low) * t)
-            if p.value ~= value then p.value = value end
+            local previous = p.value
+            if previous ~= value then p.value = value end
             if recording and p.is_automatable and p.value_max > p.value_min then
               local lane = pattern.tracks[source.track_index]
               local envelope = lane:find_automation(p) or lane:create_automation(p)
-              envelope:add_point_at(line, (value - p.value_min) / (p.value_max - p.value_min))
+              local range = p.value_max - p.value_min
+              local hold = line - STEP_LEAD
+              if step and line > 1 and previous ~= value and not envelope:has_point_at(hold) then
+                envelope:add_point_at(hold, (previous - p.value_min) / range)
+              end
+              envelope:add_point_at(line, (value - p.value_min) / range)
             end
+          end
+        end
+      end
+    end
+  end
+end
+
+-- Pad position that reproduces the parameter's current value; nil while the
+-- mapping has no range.
+local function position(map, p)
+  if map.high == map.low then return nil end
+  local t = (p.value - map.low) / (map.high - map.low)
+  return scaling.invert(map.scaling, math.max(0, math.min(1, t)))
+end
+
+-- Calls report(axis, position) whenever a mapped parameter changes, as when
+-- automation plays. The first mapping with a range leads its axis, so several
+-- parameters on one axis cannot pull the cursor apart.
+function M.follow(panel, pins, resolve, watch, report)
+  local mapped = {x = {}, y = {}}
+  local function sync(axis)
+    for _, m in ipairs(mapped[axis]) do
+      local at = position(m.map, m.parameter)
+      if at then return report(axis, at) end
+    end
+  end
+  for _, source in ipairs(pins) do
+    if source.panel == panel and source.maps then
+      local track, device = resolve(source)
+      if track then
+        for _, index in ipairs(source.params) do
+          local map, parameter = source.maps[index], device.parameters[index]
+          if map and parameter then
+            local axis = map.axis
+            mapped[axis][#mapped[axis] + 1] = {map = map, parameter = parameter}
+            watch(parameter.value_observable, function() sync(axis) end)
           end
         end
       end
@@ -95,6 +143,16 @@ function M.save(file, out, panels, pins)
       out[#out + 1] = table.concat({file, "xy-pad", panel.id,
         number(panel.x or 0.5), number(panel.y or 0.5)}, "\t")
     end
+    if panel.auto_reset or panel.reset_x or panel.reset_y then
+      out[#out + 1] = table.concat({file, "xy-reset", panel.id, panel.auto_reset and 1 or 0,
+        number(panel.reset_x or 0.5), number(panel.reset_y or 0.5)}, "\t")
+    end
+    for i = 1, M.slots do
+      local slot = panel.slots and panel.slots[i]
+      if slot then
+        out[#out + 1] = table.concat({file, "xy-slot", panel.id, i, number(slot.x), number(slot.y)}, "\t")
+      end
+    end
   end
   for _, source in ipairs(pins) do
     if source.panel and source.maps then
@@ -116,13 +174,38 @@ local function finite(text)
   if n and math.abs(n) < math.huge then return n end
 end
 
+-- A stored pad coordinate; nil unless the text is a number from 0 to 1.
+local function coordinate(text)
+  local n = finite(text)
+  if n and n >= 0 and n <= 1 then return n end
+end
+
 function M.restore(file, records, panels_by_id, pins)
   for line in records:gmatch("[^\n]+") do
     local project, id, x, y = line:match("^([^\t]*)\txy%-pad\t(%d+)\t([^\t]+)\t([^\t]+)$")
     local panel = panels_by_id[id]
     if project == file and panel then
-      x, y = finite(x), finite(y)
-      if x and y and x >= 0 and x <= 1 and y >= 0 and y <= 1 then panel.x, panel.y = x, y end
+      x, y = coordinate(x), coordinate(y)
+      if x and y then panel.x, panel.y = x, y end
+    end
+    local enabled
+    project, id, enabled, x, y =
+      line:match("^([^\t]*)\txy%-reset\t(%d+)\t([01])\t([^\t]+)\t([^\t]+)$")
+    panel = panels_by_id[id]
+    if project == file and panel then
+      x, y = coordinate(x), coordinate(y)
+      if x and y then panel.auto_reset, panel.reset_x, panel.reset_y = enabled == "1", x, y end
+    end
+    local slot
+    project, id, slot, x, y =
+      line:match("^([^\t]*)\txy%-slot\t(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)$")
+    panel = panels_by_id[id]
+    if project == file and panel then
+      slot, x, y = tonumber(slot), coordinate(x), coordinate(y)
+      if x and y and slot >= 1 and slot <= M.slots then
+        panel.slots = panel.slots or {}
+        panel.slots[slot] = {x = x, y = y}
+      end
     end
     local track, device, index, axis, low, high, low_text, high_text, curve
     project, id, track, device, index, axis, low, high, low_text, high_text, curve =
