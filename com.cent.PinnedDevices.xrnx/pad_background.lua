@@ -1,7 +1,9 @@
--- The transparent canvas owns the gesture above the background image.
+-- The transparent canvas owns the gesture above the background. Without a
+-- chosen image the pad draws its own grid in the theme's colours.
+local theme = require("theme")
 local M = {}
-local default = "images/flux-radar-grid.png"
-local effective = default
+local DEFAULT_LABEL = "Default grid"
+local effective -- fitted custom image path, nil for the drawn grid
 local picture
 
 local function quote(s)
@@ -47,16 +49,20 @@ end
 function M.settings(vb)
   picture = nil
   local pref = renoise.tool().preferences.pad_image
-  local label = vb:text {width = 172, text = ""}
-  local reset = vb:button {text = "Restore default", notifier = function()
-    if picture then picture.bitmap = default end
-    effective, pref.value = default, ""
-    label.text, label.tooltip = "FLUX Radar Grid", "FLUX Radar Grid"
-  end}
+  local label = vb:text(theme.dim {width = 172, text = ""})
+  local reset = vb:button(theme.button {text = "Restore default", notifier = function()
+    if picture then picture.visible = false end
+    effective, pref.value = nil, ""
+    label.text, label.tooltip = DEFAULT_LABEL, DEFAULT_LABEL
+  end})
   local function select_image(path)
     local image = fit_image(path)
     -- Validate decoding even when the pad is collapsed.
-    if picture then picture.bitmap = image else vb:bitmap {bitmap = image} end
+    if picture then
+      picture.bitmap, picture.visible = image, true
+    else
+      vb:bitmap {bitmap = image}
+    end
     effective, pref.value = image, path
     label.text, label.tooltip = path:match("[^/\\]+$") or path, path
   end
@@ -67,16 +73,51 @@ function M.settings(vb)
       if not ok then renoise.app():show_warning("XY pad background: " .. tostring(err)) end
     end
   end
-  effective = default
-  label.text, label.tooltip = "FLUX Radar Grid", "FLUX Radar Grid"
+  effective = nil
+  label.text, label.tooltip = DEFAULT_LABEL, DEFAULT_LABEL
   if pref.value ~= "" then
     local ok = pcall(select_image, pref.value)
     if not ok then
-      label.text, label.tooltip = "FLUX (image unavailable)", pref.value
+      label.text, label.tooltip = "Default grid (image unavailable)", pref.value
     end
   end
-  return vb:row {vb:text {text = "XY background", width = 94}, label,
-    vb:button {text = "Choose image…", notifier = choose}, reset}
+  return vb:row {spacing = renoise.ViewBuilder.DEFAULT_CONTROL_SPACING,
+    vb:text(theme.text {text = "XY background", width = 94}), label,
+    vb:button(theme.button {text = "Choose image…", notifier = choose}), reset}
+end
+
+local function draw_grid(ctx, size)
+  local palette = theme.palette
+  ctx.fill_color = palette.pad
+  ctx:fill_rect(0, 0, size, size)
+  ctx.stroke_color, ctx.line_width = palette.grid, 1
+  for i = 1, 9 do
+    local at = i * size / 10
+    ctx:begin_path(); ctx:move_to(at, 0); ctx:line_to(at, size); ctx:stroke()
+    ctx:begin_path(); ctx:move_to(0, at); ctx:line_to(size, at); ctx:stroke()
+  end
+  local mid = size / 2
+  ctx.stroke_color, ctx.line_width = palette.ring, 1.5
+  for _, r in ipairs({0.14, 0.28, 0.42}) do
+    ctx:begin_path()
+    ctx:arc(mid, mid, r * size, 0, 2 * math.pi)
+    ctx:stroke()
+  end
+  ctx.stroke_color, ctx.line_width = palette.cross, 1.5
+  ctx:begin_path(); ctx:move_to(mid, 0); ctx:line_to(mid, size); ctx:stroke()
+  ctx:begin_path(); ctx:move_to(0, mid); ctx:line_to(size, mid); ctx:stroke()
+  ctx.stroke_color, ctx.line_width = palette.corner, 4
+  local inset, arm = 24, 44
+  for _, c in ipairs({{inset, inset, 1, 1}, {size - inset, inset, -1, 1},
+      {inset, size - inset, 1, -1}, {size - inset, size - inset, -1, -1}}) do
+    ctx:begin_path()
+    ctx:move_to(c[1] + c[3] * arm, c[2])
+    ctx:line_to(c[1], c[2])
+    ctx:line_to(c[1], c[2] + c[4] * arm)
+    ctx:stroke()
+  end
+  ctx.stroke_color, ctx.line_width = palette.border, 2
+  ctx:stroke_rect(1, 1, size - 2, size - 2)
 end
 
 function M.layer(vb, panel, move, save)
@@ -106,20 +147,24 @@ function M.layer(vb, panel, move, save)
     move(x, y, recording)
     cursor:update()
   end
-  picture = vb:bitmap {bitmap = effective, mode = "plain"}
+  local grid = vb:canvas {width = size, height = size, mode = "plain",
+    render = function(ctx) draw_grid(ctx, size) end}
+  -- A placeholder bitmap keeps the view valid until an image is chosen.
+  picture = vb:bitmap {bitmap = effective or "images/scale-1.bmp", mode = "plain",
+    visible = effective ~= nil}
   cursor = vb:canvas {width = size, height = size, mode = "transparent",
     tooltip = "Left-drag to adjust. Right-drag to record both axes.",
     mouse_events = {"down", "drag", "up"}, mouse_handler = mouse, render = function(ctx)
-    local x = math.max(5, math.min(size - 5, (panel.x or 0.5) * (size - 1)))
-    local y = math.max(5, math.min(size - 5, (1 - (panel.y or 0.5)) * (size - 1)))
+    local x = math.max(6, math.min(size - 6, (panel.x or 0.5) * (size - 1)))
+    local y = math.max(6, math.min(size - 6, (1 - (panel.y or 0.5)) * (size - 1)))
     ctx:begin_path()
-    ctx:arc(x, y, 4, 0, 2 * math.pi)
-    ctx.fill_color = {247, 249, 245}
+    ctx:arc(x, y, 5, 0, 2 * math.pi)
+    ctx.fill_color = theme.palette.cursor
     ctx:fill()
-    ctx.stroke_color, ctx.line_width = {16, 21, 24}, 2
+    ctx.stroke_color, ctx.line_width = theme.palette.pad, 2
     ctx:stroke()
   end}
-  return vb:stack {picture, cursor}
+  return vb:stack {grid, picture, cursor}
 end
 
 return M

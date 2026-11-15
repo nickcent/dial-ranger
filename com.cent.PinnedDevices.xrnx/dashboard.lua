@@ -5,6 +5,8 @@
 local pins = require("pins")
 local appearance = require("appearance")
 local background = require("pad_background")
+local theme = require("theme")
+local variant = require("variant")
 local xy = require("xy")
 local window_views = require("window_views")
 
@@ -20,9 +22,10 @@ local dlg = nil
 local vb = nil               -- root ViewBuilder
 local cards_view = nil       -- row holding the cards
 local panels_view
+local pad_view              -- holds the XY pad, right of the controls
 local selected_panel
 local updating_target = false
-local displayed_device
+local displayed_device -- "track:device" of the device shown in the popup
 
 local function destination()
   return selected_panel or pins.create_panel()
@@ -65,8 +68,10 @@ local function refresh_selection()
   if not vb then return end
   local s = song()
   local dev = s.selected_track_device
-  local index = dev == displayed_device and vb.views.param_popup.value or 1
-  displayed_device = dev
+  -- Renoise objects have no __eq; compare the selection by position.
+  local key = dev and (s.selected_track_index .. ":" .. s.selected_track_device_index)
+  local index = key == displayed_device and vb.views.param_popup.value or 1
+  displayed_device = key
   local items = {}
   if dev then
     for i, p in ipairs(dev.parameters) do items[i] = p.name end
@@ -123,64 +128,62 @@ end
 local function build_root()
   vb = renoise.ViewBuilder()
 
-  local panel = vb:column {
-    background = "group",
-    margin = VB.DEFAULT_CONTROL_MARGIN,
-    spacing = VB.DEFAULT_CONTROL_SPACING,
-    vb:row {vb:text {text = "Track", width = 76}, vb:text {id = "track_name", width = 330}},
-    vb:row {vb:text {text = "Device", width = 76}, vb:text {id = "device_name", width = 330, font = "bold"}},
+  local panel = theme.panel(vb, {
+    vb:row {vb:text(theme.dim {text = "Track", width = 76}), vb:text(theme.text {id = "track_name", width = 330})},
+    vb:row {vb:text(theme.dim {text = "Device", width = 76}), vb:text(theme.text {id = "device_name", width = 330, font = "bold"})},
     vb:row {
       spacing = VB.DEFAULT_CONTROL_SPACING,
-      vb:text {text = "Parameter", width = 76},
+      vb:text(theme.dim {text = "Parameter", width = 76}),
       vb:popup {id = "param_popup", items = {"No parameters"}, width = 220},
-      vb:button {id = "assign_x", text = "Assign to X", notifier = function() assign_selected("x") end},
-      vb:button {id = "assign_y", text = "Assign to Y", notifier = function() assign_selected("y") end},
+      vb:button(theme.button {id = "assign_x", text = "Assign to X", notifier = function() assign_selected("x") end}),
+      vb:button(theme.button {id = "assign_y", text = "Assign to Y", notifier = function() assign_selected("y") end}),
     },
     vb:row {
-      vb:button {
+      spacing = VB.DEFAULT_CONTROL_SPACING,
+      vb:button(theme.accent {
         id = "pin_device", text = "Pin device", width = 90,
         tooltip = "Pin the selected device with all its parameters",
         notifier = pin_selected_device,
-      },
-      vb:button {
+      }),
+      vb:button(theme.button {
         id = "pin_param", text = "Pin parameter", width = 100,
         tooltip = "Pin only the chosen parameter of the selected device",
         notifier = function() pin_selected_param() end,
-      },
-    },
-    vb:row {
-      vb:button {
+      }),
+      vb:button(theme.button {
         text = "Clear all", width = 90,
         tooltip = "Remove every pin for this project",
         notifier = function() pins.clear() end,
-      },
+      }),
     },
-  }
-
-  panel:add_view(vb:row {
-    spacing = VB.DEFAULT_CONTROL_SPACING,
-    vb:button {text = "New panel", width = 90, notifier = function()
-      selected_panel = pins.create_panel()
-      vb.views.panel_target.value = #pins.panels()
-      M.rebuild()
-    end},
-    vb:popup {id = "panel_target", width = 180, items = {"No panels"},
-      tooltip = "Active XY pad for parameter assignments", notifier = function(index)
-        if updating_target or selected_panel == pins.panels()[index] then return end
-        selected_panel = pins.panels()[index]
+    vb:row {
+      spacing = VB.DEFAULT_CONTROL_SPACING,
+      vb:button(theme.button {text = "New panel", width = 90, notifier = function()
+        selected_panel = pins.create_panel()
+        vb.views.panel_target.value = #pins.panels()
         M.rebuild()
-      end},
-  })
+      end}),
+      vb:popup {id = "panel_target", width = 180, items = {"No panels"},
+        tooltip = "Active XY pad for parameter assignments", notifier = function(index)
+          if updating_target or selected_panel == pins.panels()[index] then return end
+          selected_panel = pins.panels()[index]
+          M.rebuild()
+        end},
+    },
+  }, 520)
+  pad_view = vb:column {}
   panels_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING}
   cards_view = vb:row { id = "cards", spacing = VB.DEFAULT_DIALOG_SPACING }
 
+  -- Controls and pinned parameters on the left, the XY pad on the right.
   return vb:column {
-    margin = VB.DEFAULT_DIALOG_MARGIN,
     spacing = VB.DEFAULT_DIALOG_SPACING,
     appearance.header(vb),
-    panel,
-    panels_view,
-    cards_view,
+    vb:row {
+      spacing = VB.DEFAULT_DIALOG_SPACING,
+      vb:column {spacing = VB.DEFAULT_DIALOG_SPACING, panel, panels_view, cards_view},
+      pad_view,
+    },
   }
 end
 
@@ -284,21 +287,21 @@ local function build_param_row(cvb, pin, i, p)
     tooltip = "Mouse friction. 1.000 gives 1000 times finer drag control.",
   }
   local views = {
-    cvb:text { text = p.name, width = NAME_WIDTH, tooltip = p.name },
+    cvb:text(theme.text { text = p.name, width = NAME_WIDTH, tooltip = p.name }),
     cvb:stack { slider, track }, value_text,
-    cvb:text { text = "Friction" }, mini, box,
-    cvb:button {
+    cvb:text(theme.dim { text = "Friction" }), mini, box,
+    cvb:button(theme.button {
       text = "×", width = 18, tooltip = "Unpin this parameter",
       notifier = function() pins.unpin_param(pin, i) end,
-    },
+    }),
   }
   if not pin.panel then
-    views[#views + 1] = cvb:button {
+    views[#views + 1] = cvb:button(theme.button {
       text = "+ Panel", tooltip = "Copy this parameter to the chosen panel",
       notifier = function()
         pins.pin_param(pin.track_index, pin.device_index, i, destination(), pin.friction[i])
       end,
-    }
+    })
   end
   if not pin.panel then return cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING, views = views} end
 
@@ -318,13 +321,13 @@ local function build_param_row(cvb, pin, i, p)
   if not map then return row end
   local range = cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING, cvb:space {width = NAME_WIDTH}}
   local function add_endpoint(key, caption)
-    local label = cvb:text {text = map[key .. "_text"], width = 100}
-    range:add_view(cvb:button {text = caption, tooltip = "Capture the current " .. p.name,
+    local label = cvb:text(theme.text {text = map[key .. "_text"], width = 100})
+    range:add_view(cvb:button(theme.button {text = caption, tooltip = "Capture the current " .. p.name,
       notifier = function()
         xy.capture(map, key, p)
         label.text = map[key .. "_text"]
         pins.save()
-      end})
+      end}))
     range:add_view(label)
   end
   add_endpoint("low", "Set Min")
@@ -378,7 +381,7 @@ local function build_card(pin, track, device)
     tooltip = "Active (bypass when off)",
     notifier = function(v) device.is_active = v end,
   }
-  local title = cvb:text { text = display_name(device), width = 190, font = "bold" }
+  local title = cvb:text(theme.text { text = display_name(device), width = 190, font = "bold" })
   watch(card_notifiers, device.is_active_observable, function()
     active_box.value = device.is_active
   end)
@@ -388,28 +391,24 @@ local function build_card(pin, track, device)
 
   local title_views = { active_box, title, cvb:space { width = 8 } }
   if device.external_editor_available then
-    title_views[#title_views + 1] = cvb:button {
+    title_views[#title_views + 1] = cvb:button(theme.button {
       text = "Editor", tooltip = "Show/hide the plug-in's own editor window",
       notifier = function()
         device.external_editor_visible = not device.external_editor_visible
       end,
-    }
+    })
   end
-  title_views[#title_views + 1] = cvb:button {
+  title_views[#title_views + 1] = cvb:button(theme.button {
     text = "Unpin", tooltip = "Remove this card",
     notifier = function() pins.unpin(pin) end,
-  }
+  })
 
-  local card = cvb:column {
-    background = "group",
-    margin = VB.DEFAULT_CONTROL_MARGIN,
-    spacing = VB.DEFAULT_CONTROL_SPACING,
-    width = CARD_WIDTH,
+  local card, body = theme.panel(cvb, {
     header,
     cvb:row { spacing = VB.DEFAULT_CONTROL_SPACING, views = title_views },
-  }
+  }, CARD_WIDTH)
   for _, i in ipairs(param_indices(pin, device)) do
-    card:add_view(build_param_row(cvb, pin, i, device.parameters[i]))
+    body:add_view(build_param_row(cvb, pin, i, device.parameters[i]))
   end
   return card
 end
@@ -434,21 +433,20 @@ local function build_panel(panel)
   local cvb = renoise.ViewBuilder()
   local rgb = {}
   for pair in panel.color:gmatch("%x%x") do rgb[#rgb + 1] = tonumber(pair, 16) end
-  local view = cvb:column {
-    background = "group", margin = VB.DEFAULT_CONTROL_MARGIN, spacing = VB.DEFAULT_CONTROL_SPACING,
+  local view, body = theme.panel(cvb, {
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
       cvb:button {text = "Panel  ·  " .. panel.name, width = 240, height = 28, color = rgb,
         tooltip = "Edit panel name and colour", notifier = function() edit_panel(panel) end},
-      cvb:button {text = "Edit", notifier = function() edit_panel(panel) end},
-      cvb:button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end},
+      cvb:button(theme.button {text = "Edit", notifier = function() edit_panel(panel) end}),
+      cvb:button(theme.button {text = "Remove panel", notifier = function() pins.remove_panel(panel) end}),
     },
-  }
+  })
   local rows = cvb:column {spacing = VB.DEFAULT_CONTROL_SPACING}
-  view:add_view(rows)
+  body:add_view(rows)
   for _, source in ipairs(pins.list()) do
     if source.panel == panel then
       local track, device = pins.resolve(source)
-      local label = cvb:text {font = "bold", width = 420}
+      local label = cvb:text(theme.text {font = "bold", width = 420})
       local function update_label()
         label.text = ("%02d %s  ·  %02d %s"):format(source.track_index, track.name,
           source.device_index, display_name(device))
@@ -497,7 +495,7 @@ function M.rebuild()
   updating_target = false
   selected_panel = pins.panels()[target]
   local active = selected_panel or {}
-  add_card(panels_view, background.layer(vb, active, function(x, y, recording)
+  add_card(pad_view, background.layer(vb, active, function(x, y, recording)
     xy.move(active, x, y, pins.list(), pins.resolve, recording)
   end, pins.save))
   for _, panel in ipairs(pins.panels()) do
@@ -537,7 +535,7 @@ function M.show()
   local content = build_root()
   local root = window_views.frame(vb, content)
   -- returning the key hands it back to Renoise's global shortcuts
-  dlg = renoise.app():show_custom_dialog("Dial Ranger", root,
+  dlg = renoise.app():show_custom_dialog(variant.name, root,
     function(_, key) return key end)
   M.rebuild()
 end

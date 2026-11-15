@@ -1,19 +1,20 @@
 local scaling = require("scaling")
+local theme = require("theme")
 local M = {}
 
--- Every edge shares the same two colours. At least one band contrasts with
--- any host theme; the content sets the stack's size as panels expand/shrink.
+-- Paints the whole window so the host theme's dialog background stays hidden;
+-- the content sets the stack's size as panels expand/shrink.
 function M.frame(vb, content)
+  local palette = theme.palette
   return vb:stack {
-    vb:canvas {width = "100%", height = "100%", mode = "transparent", render = function(ctx)
+    vb:canvas {width = "100%", height = "100%", mode = "plain", render = function(ctx)
       local w, h = ctx.size.width, ctx.size.height
-      for i, color in ipairs({{19, 25, 24}, {248, 220, 122}, {19, 25, 24}}) do
-        local offset = (i - 1) * 2
-        ctx.stroke_color, ctx.line_width = color, 2
-        ctx:stroke_rect(offset + 1, offset + 1, w - 2 * offset - 2, h - 2 * offset - 2)
-      end
+      ctx.fill_color = palette.background
+      ctx:fill_rect(0, 0, w, h)
+      ctx.stroke_color, ctx.line_width = palette.border, 2
+      ctx:stroke_rect(1, 1, w - 2, h - 2)
     end},
-    vb:column {margin = 6, content},
+    vb:column {margin = 10, content},
   }
 end
 
@@ -27,24 +28,25 @@ function M.curve_editor(vb, map, save)
     return pad + h * (1 - scaling.apply(map.scaling, t))
   end
   local function render(ctx)
-    ctx.fill_color = {22, 27, 34}
+    local palette = theme.palette
+    ctx.fill_color = palette.pad
     ctx:fill_rect(0, 0, width, height)
-    ctx.fill_color = {41, 64, 87}
+    ctx.fill_color = palette.grid
     ctx:begin_path()
     ctx:move_to(pad, height - pad)
     for x = 0, w, 1 do ctx:line_to(pad + x, y_at(x / w)) end
     ctx:line_to(width - pad, height - pad)
     ctx:close_path()
     ctx:fill()
-    ctx.fill_color = {73, 86, 105}
+    ctx.fill_color = palette.ring
     ctx:fill_rect(width / 2, pad, 1, h)
-    ctx.stroke_color = {155, 188, 226}
+    ctx.stroke_color = palette.accent
     ctx.line_width = 1.5
     ctx:begin_path()
     ctx:move_to(pad, y_at(0))
     for x = 1, w do ctx:line_to(pad + x, y_at(x / w)) end
     ctx:stroke()
-    ctx.fill_color = {234, 239, 246}
+    ctx.fill_color = palette.cursor
     for _, t in ipairs({0, 1}) do ctx:fill_rect(pad + t * w - 2, y_at(t) - 2, 4, 4) end
     ctx:fill_rect(width / 2 - 4, y_at(0.5) - 4, 8, 8)
   end
@@ -75,17 +77,17 @@ function M.curve_editor(vb, map, save)
     mouse_handler = mouse}
   local presets = vb:row {}
   for i, name in ipairs(scaling.names) do
-    presets:add_view(vb:button {bitmap = ("images/scale-%d.bmp"):format(i), width = 42,
+    presets:add_view(vb:button(theme.button {bitmap = ("images/scale-%d.bmp"):format(i), width = 42,
       tooltip = name, notifier = function()
         map.scaling = i
         graph:update()
         save()
-      end})
+      end}))
   end
   local editor = vb:column {visible = false, graph, presets}
   return vb:column {
-    vb:button {text = "Curve", width = 58, tooltip = "Edit mapping curve",
-      notifier = function() editor.visible = not editor.visible end},
+    vb:button(theme.button {text = "Curve", width = 58, tooltip = "Edit mapping curve",
+      notifier = function() editor.visible = not editor.visible end}),
     editor,
   }
 end
