@@ -60,7 +60,7 @@ song.sequencer = {pattern_sequence = {1}}
 song.transport = {playing = false, edit_pos = {sequence = 1, line = 2},
   playback_pos = {sequence = 1, line = 5}}
 local handler
-local vb = {bitmap = function() return {} end, stack = function(_, views) return views end,
+local vb = {stack = function(_, views) return views end,
   canvas = function(_, view) handler = view.mouse_handler; return {update = function() end} end}
 local function event(kind, button, x, y)
   handler {type = kind, button = button, position = {x = x, y = y}}

@@ -9,9 +9,9 @@ local M = {}
 M.refit = function() end
 
 function M.frame(vb, content)
-  local palette = theme.palette
   local body = vb:column {margin = 10, content}
   local canvas = vb:canvas {width = 1, height = 1, mode = "plain", render = function(ctx)
+    local palette = theme.palette
     local w, h = ctx.size.width, ctx.size.height
     ctx.fill_color = palette.background
     ctx:fill_rect(0, 0, w, h)
@@ -21,6 +21,15 @@ function M.frame(vb, content)
   M.refit = function()
     body:resize()
     canvas.width, canvas.height = body.width, body.height
+  end
+  -- Swaps the whole content in place, keeping the window where it is. Views
+  -- take their colours when built, so a new skin needs new views.
+  M.replace = function(replacement)
+    body:remove_view(content)
+    content = replacement
+    body:add_view(content)
+    canvas:update()
+    M.refit()
   end
   M.refit()
   return vb:stack {canvas, body}

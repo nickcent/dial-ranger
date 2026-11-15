@@ -65,11 +65,9 @@ function M.current()
   return renoise.tool().preferences.skin.value
 end
 
--- Label of the current skin, as shown in the skin popup.
-function M.label()
-  for _, skin in ipairs(M.skins) do
-    if skin.key == M.current() then return skin.label end
-  end
+-- The palette of any skin, for views that show a skin other than the current.
+function M.look(key)
+  return looks[key]
 end
 
 -- Every skin key, the current skin first.

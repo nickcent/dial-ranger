@@ -3,7 +3,6 @@
 -- indices on every structural change; live values flow through notifiers.
 
 local pins = require("pins")
-local appearance = require("appearance")
 local background = require("pad_background")
 local theme = require("theme")
 local xy = require("xy")
@@ -22,7 +21,7 @@ local vb = nil               -- root ViewBuilder
 local cards_view = nil       -- row holding the cards
 local xy_view               -- the current skin's XY parameters
 local pad_view              -- holds the XY pad, right of the controls
-local header_view           -- logo, background and skin settings
+local header_view           -- the logo; hidden when folded
 local controls_view         -- pin panel, XY parameters and cards; hidden when folded
 local displayed_device -- "track:device" of the device shown in the popup
 
@@ -130,6 +129,7 @@ local function build_root()
   vb = renoise.ViewBuilder()
 
   local panel = theme.panel(vb, {
+    vb:text(theme.dim {text = "Select a track and a device in Renoise."}),
     vb:row {vb:text(theme.dim {text = "Track", width = 76}), vb:text(theme.text {id = "track_name", width = 330})},
     vb:row {vb:text(theme.dim {text = "Device", width = 76}), vb:text(theme.text {id = "device_name", width = 330, font = "bold"})},
     vb:row {
@@ -163,8 +163,8 @@ local function build_root()
   cards_view = vb:row { id = "cards", spacing = VB.DEFAULT_DIALOG_SPACING }
 
   local folded = renoise.tool().preferences.folded.value
-  header_view = appearance.header(vb, function(key) M.set_skin(key) end)
-  header_view.visible = not folded
+  header_view = vb:bitmap {bitmap = "images/dial-ranger.bmp", mode = "plain",
+    tooltip = "Dial Ranger by nickcent", visible = not folded}
   controls_view = vb:column {spacing = VB.DEFAULT_DIALOG_SPACING, visible = not folded,
     panel, xy_view, cards_view}
 
@@ -296,7 +296,7 @@ local function build_param_row(cvb, pin, i, p)
   }
   if not pin.panel then
     views[#views + 1] = cvb:button(theme.button {
-      text = "+ XY", tooltip = "Copy this parameter to this skin's XY",
+      text = "+ XY", tooltip = "Copy this parameter to the XY on show",
       notifier = function()
         pins.pin_param(pin.track_index, pin.device_index, i, destination(), pin.friction[i])
       end,
@@ -412,14 +412,18 @@ local function build_card(pin, track, device)
   return card
 end
 
--- The current skin's XY: its parameters with their axes, ranges and curves.
+-- The current XY: its parameters with their axes, ranges and curves.
 local function build_xy(panel)
   local cvb = renoise.ViewBuilder()
+  local number
+  for i, candidate in ipairs(pins.panels()) do
+    if candidate == panel then number = i end
+  end
   local view, body = theme.panel(cvb, {
     cvb:row {spacing = VB.DEFAULT_CONTROL_SPACING,
-      cvb:text(theme.text {text = "XY  ·  " .. theme.label(), font = "bold", width = 240}),
+      cvb:text(theme.text {text = "XY " .. number, font = "bold", width = 240}),
       cvb:button(theme.button {text = "Clear XY",
-        tooltip = "Remove this skin's parameters, slots and reset position. Recorded automation stays.",
+        tooltip = "Remove this XY: its parameters, slots and reset position. Recorded automation stays.",
         notifier = function() pins.remove_panel(panel) end}),
     },
   })
@@ -563,8 +567,59 @@ local function build_pad_controls(panel, editable, rest)
   }
 end
 
+-- One button per XY in that XY's skin colours, then "+" for the next free
+-- skin. Showing another XY switches the window to its skin.
+local function build_switcher()
+  local row = vb:row {spacing = VB.DEFAULT_CONTROL_SPACING}
+  for i, panel in ipairs(pins.panels()) do
+    local look = theme.look(panel.skin)
+    local shown = panel.skin == theme.current()
+    row:add_view(vb:button {
+      text = tostring(i), width = 28, height = 22,
+      color = shown and look.accent or look.button,
+      secondary_color = shown and look.accent_text or look.accent,
+      tooltip = shown and "This XY" or "Show this XY",
+      notifier = function() M.set_skin(panel.skin) end,
+    })
+  end
+  local free
+  for _, key in ipairs(theme.keys()) do
+    if not pins.panel(key) then free = key; break end
+  end
+  row:add_view(vb:button(theme.button {
+    text = "+", width = 28, height = 22, active = free ~= nil,
+    tooltip = free and "Add an XY in the next free skin" or "Every skin already has an XY",
+    notifier = function()
+      pins.create_panel(free)
+      M.set_skin(free)
+    end,
+  }))
+  return row
+end
+
+-- With XYs in the project the window always shows one of them. Returns true
+-- when that changed the skin.
+local function settle_skin()
+  local first = pins.panels()[1]
+  if not first or pins.panel(theme.current()) then return false end
+  theme.set(first.skin)
+  return true
+end
+
+-- Views take their colours when built, so a new skin rebuilds the window's
+-- content in place. The chosen parameter survives the swap.
+local function restyle()
+  local chosen = vb.views.param_popup.value
+  M.detach_all()
+  card_children = {} -- the new root owns fresh card containers
+  window_views.replace(build_root())
+  M.rebuild()
+  vb.views.param_popup.value = math.min(chosen, #vb.views.param_popup.items)
+end
+
 function M.rebuild()
   if not vb then return end
+  if settle_skin() then return restyle() end
   clear_cards()
   if pins.prune() then pins.save() end
   local current = pins.panel(theme.current())
@@ -572,6 +627,7 @@ function M.rebuild()
   local layer, pad = background.layer(vb, active, function(x, y, recording, step)
     xy.move(active, x, y, pins.list(), pins.resolve, recording, step)
   end, pins.save)
+  add_card(pad_view, build_switcher())
   add_card(pad_view, layer)
   add_card(pad_view, build_slots(active, current ~= nil, pad))
   add_card(pad_view, build_pad_controls(active, current ~= nil, pad.rest))
@@ -611,6 +667,7 @@ function M.show()
   end
   M.detach_all()
   card_children = {} -- The new root owns a fresh cards_view.
+  settle_skin()
   local content = build_root()
   local root = window_views.frame(vb, content)
   -- returning the key hands it back to Renoise's global shortcuts
@@ -619,14 +676,10 @@ function M.show()
   M.rebuild()
 end
 
--- Views take their colours when built, so a new skin reopens the window.
 function M.set_skin(key)
   if key == theme.current() then return end
   theme.set(key)
-  if M.visible() then
-    dlg:close()
-    M.show()
-  end
+  if M.visible() then restyle() end
 end
 
 pins.on_change(function()

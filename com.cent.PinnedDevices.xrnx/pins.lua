@@ -28,7 +28,6 @@ local device_handlers = {}           -- { {obs = devices_observable, fn = fn}, .
 -- persistence
 local prefs = renoise.Document.create("PinnedDevicesPreferences") {
   pins = "",
-  pad_image = "",
   skin = "terminal",
   folded = false,
 }
@@ -182,6 +181,11 @@ function M.set_friction(pin, index, amount)
   if (pin.friction[index] or 0) == amount then return end
   pin.friction[index] = amount > 0 and amount or nil
   M.save()
+end
+
+-- Every XY of the project, oldest first.
+function M.panels()
+  return panels
 end
 
 -- The XY shown under `skin`, or nil while that skin has none.

@@ -1,90 +1,7 @@
--- The transparent canvas owns the gesture above the background. Without a
--- chosen image the pad draws its own grid in the theme's colours.
+-- The XY pad: a grid drawn in the skin's colours, and above it a transparent
+-- canvas that owns the gestures and draws the dot.
 local theme = require("theme")
 local M = {}
-local DEFAULT_LABEL = "Default grid"
-local effective -- fitted custom image path, nil for the drawn grid
-local picture
-
-local function quote(s)
-  return "'" .. s:gsub("'", "'\\''") .. "'"
-end
-
--- Express UTF-8 paths as numeric bytes inside the fixed PowerShell command.
-local function windows_path(path)
-  local bytes = {}
-  for i = 1, #path do bytes[i] = path:byte(i) end
-  return "[Text.Encoding]::UTF8.GetString([byte[]](" .. table.concat(bytes, ",") .. "))"
-end
-
-local function fit_image(path)
-  local output = os.tmpname("png")
-  local platform = os.platform()
-  local command
-  if platform == "MACINTOSH" then
-    command = "/usr/bin/sips -s format png -Z 400 -p 400 400 --padColor 15191F "
-      .. quote(path) .. " --out " .. quote(output)
-  elseif platform == "WINDOWS" then
-    command = 'powershell.exe -NoProfile -NonInteractive -Command "'
-      .. "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Drawing; "
-      .. "$src=[Drawing.Image]::FromFile(" .. windows_path(path) .. "); "
-      .. "$dst=New-Object Drawing.Bitmap 400,400; $g=[Drawing.Graphics]::FromImage($dst); "
-      .. "$g.Clear([Drawing.Color]::FromArgb(21,25,31)); "
-      .. "$s=400.0/[Math]::Max($src.Width,$src.Height); "
-      .. "$w=[int]($s*$src.Width); $h=[int]($s*$src.Height); "
-      .. "$g.DrawImage($src,[int]((400-$w)/2),[int]((400-$h)/2),$w,$h); "
-      .. "$dst.Save(" .. windows_path(output) .. ',[Drawing.Imaging.ImageFormat]::Png)"'
-  else
-    command = "magick " .. quote(path .. "[0]")
-      .. " -auto-orient -thumbnail 400x400 -background '#15191F' -gravity center -extent 400x400 "
-      .. quote(output)
-  end
-  local rc = os.execute(command)
-  if rc ~= 0 and rc ~= true then
-    error(platform == "LINUX" and "Could not read image. Linux requires ImageMagick (magick)." or "Could not read image.")
-  end
-  return output
-end
-
-function M.settings(vb)
-  picture = nil
-  local pref = renoise.tool().preferences.pad_image
-  local label = vb:text(theme.dim {width = 172, text = ""})
-  local reset = vb:button(theme.button {text = "Restore default", notifier = function()
-    if picture then picture.visible = false end
-    effective, pref.value = nil, ""
-    label.text, label.tooltip = DEFAULT_LABEL, DEFAULT_LABEL
-  end})
-  local function select_image(path)
-    local image = fit_image(path)
-    -- Validate decoding even when the pad is collapsed.
-    if picture then
-      picture.bitmap, picture.visible = image, true
-    else
-      vb:bitmap {bitmap = image}
-    end
-    effective, pref.value = image, path
-    label.text, label.tooltip = path:match("[^/\\]+$") or path, path
-  end
-  local function choose()
-    local path = renoise.app():prompt_for_filename_to_read({"*.*"}, "Choose XY pad background")
-    if path and path ~= "" then
-      local ok, err = pcall(select_image, path)
-      if not ok then renoise.app():show_warning("XY pad background: " .. tostring(err)) end
-    end
-  end
-  effective = nil
-  label.text, label.tooltip = DEFAULT_LABEL, DEFAULT_LABEL
-  if pref.value ~= "" then
-    local ok = pcall(select_image, pref.value)
-    if not ok then
-      label.text, label.tooltip = "Default grid (image unavailable)", pref.value
-    end
-  end
-  return vb:row {spacing = renoise.ViewBuilder.DEFAULT_CONTROL_SPACING,
-    vb:text(theme.text {text = "XY background", width = 94}), label,
-    vb:button(theme.button {text = "Choose image…", notifier = choose}), reset}
-end
 
 local function draw_grid(ctx, size)
   local palette = theme.palette
@@ -167,9 +84,6 @@ function M.layer(vb, panel, move, save)
   end
   local grid = vb:canvas {width = size, height = size, mode = "plain",
     render = function(ctx) draw_grid(ctx, size) end}
-  -- A placeholder bitmap keeps the view valid until an image is chosen.
-  picture = vb:bitmap {bitmap = effective or "images/scale-1.bmp", mode = "plain",
-    visible = effective ~= nil}
   cursor = vb:canvas {width = size, height = size, mode = "transparent",
     tooltip = "Left-drag to adjust. Right-drag to record both axes.",
     mouse_events = {"down", "drag", "up"}, mouse_handler = mouse, render = function(ctx)
@@ -188,7 +102,7 @@ function M.layer(vb, panel, move, save)
     panel[axis] = position
     cursor:update()
   end
-  return vb:stack {grid, picture, cursor}, {follow = follow, jump = jump, rest = rest}
+  return vb:stack {grid, cursor}, {follow = follow, jump = jump, rest = rest}
 end
 
 return M
