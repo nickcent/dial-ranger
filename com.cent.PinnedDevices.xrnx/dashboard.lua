@@ -77,9 +77,13 @@ local function refresh_selection()
     for i, p in ipairs(dev.parameters) do items[i] = p.name end
   end
   local available = #items > 0
+  -- Badges: the track in its own Renoise colour, the device in the accent.
   vb.views.track_name.text = s.selected_track.name
+  vb.views.track_name.color = s.selected_track.color
+  local badge = dev and theme.accent({}) or theme.button({})
   vb.views.device_name.text = dev and display_name(dev) or "Select a device in the DSP chain"
   vb.views.device_name.tooltip = vb.views.device_name.text
+  vb.views.device_name.color, vb.views.device_name.secondary_color = badge.color, badge.secondary_color
   vb.views.param_popup.items = available and items or {"No parameters"}
   vb.views.param_popup.value = math.min(index, #vb.views.param_popup.items)
   vb.views.param_popup.active = available
@@ -130,8 +134,8 @@ local function build_root()
 
   local panel = theme.panel(vb, {
     vb:text(theme.dim {text = "Select a track and a device in Renoise."}),
-    vb:row {vb:text(theme.dim {text = "Track", width = 76}), vb:text(theme.text {id = "track_name", width = 330})},
-    vb:row {vb:text(theme.dim {text = "Device", width = 76}), vb:text(theme.text {id = "device_name", width = 330, font = "bold"})},
+    vb:row {vb:text(theme.dim {text = "Track", width = 76}), vb:button {id = "track_name", width = 330, height = 22}},
+    vb:row {vb:text(theme.dim {text = "Device", width = 76}), vb:button {id = "device_name", width = 330, height = 22}},
     vb:row {
       spacing = VB.DEFAULT_CONTROL_SPACING,
       vb:text(theme.dim {text = "Parameter", width = 76}),
