@@ -70,15 +70,13 @@ end
 
 local function on_new_document()
   pins.reset()
-  pins.restore(renoise.song().file_name, theme.order)
+  pins.restore(theme.order)
   pins.attach_song()
   if dashboard.visible() then dashboard.rebuild() end
 end
 
 tool.app_release_document_observable:add_notifier(on_release_document)
 tool.app_new_document_observable:add_notifier(on_new_document)
--- file_name changes on Save As; keep the stored pins under the new name
-tool.app_saved_document_observable:add_notifier(pins.save)
 
 -- "Reload All Tools" does not fire app_new_document (only the auto_reload
 -- debugging path does); attach now when a song is already open.

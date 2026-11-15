@@ -1,5 +1,5 @@
 -- Run from the repository root with luajit tests/xy.lua.
-package.path = "com.cent.PinnedDevices.xrnx/?.lua;" .. package.path
+package.path = "com.cent.DialRanger.xrnx/?.lua;" .. package.path
 local function param(value, quantum)
   return {value = value, value_min = -2, value_max = 2, value_quantum = quantum or 0,
     value_string = "original\t100%", is_automatable = true, value_observable = {},
@@ -13,12 +13,14 @@ local song = {file_name = "xy.xrns", tracks = {
 local tool = {}
 renoise = {song = function() return song end, tool = function() return tool end,
   app = function() return {show_status = function() end} end,
+  -- A setup from before 1.0: in the tool preferences, keyed by the file path.
   Document = {create = function() return function()
-    return {pins = {value = "xy.xrns\t1\t1\tFilter\tdevice\t"}, skin = {value = "terminal"}}
+    return {pins = {value = "xy.xrns\t1\t1\tFilter\tdevice\t\nother.xrns\t2\t1\tSpace\tdevice\t"},
+      skin = {value = "terminal"}}
   end end}}
 local pins, xy = require("pins"), require("xy")
 local skins = {"terminal", "renoise", "hardware", "virus"}
-pins.restore(song.file_name, skins)
+pins.restore(skins)
 assert(#pins.list() == 1 and pins.list()[1].mode == "device")
 local panel = pins.create_panel("terminal")
 local first = pins.pin_param(1, 1, 1, panel)
@@ -158,17 +160,18 @@ local before = a.value
 panel.slots = {[3] = {x = 0.125, y = 1}}
 pins.save()
 assert(a.value == before)
+-- The setup now travels in the song; the old preferences are left alone.
+assert(song.tool_data:find("^dial%-ranger\t1\n") and tool.preferences.pins.value:find("^xy.xrns\t1\t1\tFilter"))
 -- Simulate one legacy range at the same time as curved peers, and a panel
 -- saved with a colour and a name before skins chose the XY.
-local legacy, replaced = tool.preferences.pins.value:gsub(
-  "([^\n]*\txy%-range\t1\t2\t1\t1\t[^\n]*)\t3", "%1", 1)
+local legacy, replaced = song.tool_data:gsub("(xy%-range\t1\t2\t1\t1\t[^\n]*)\t3", "%1", 1)
 assert(replaced == 1)
-legacy, replaced = legacy:gsub("\tpanel\t1\tterminal", "\tpanel\t1\t557647\tPanel 1", 1)
+legacy, replaced = legacy:gsub("\npanel\t1\tterminal", "\npanel\t1\t557647\tPanel 1", 1)
 assert(replaced == 1)
-tool.preferences.pins.value = legacy
+song.tool_data = legacy
 pins.reset()
 a.value, b.value, c.value, d.value = 0.1, 0, 0.4, 0.5
-pins.restore(song.file_name, {"hardware", "terminal", "renoise", "virus"})
+pins.restore({"hardware", "terminal", "renoise", "virus"})
 panel, first, second = pins.panel("hardware"), pins.list()[2], pins.list()[3]
 assert(panel and not pins.panel("terminal"))
 assert(panel.auto_reset and panel.reset_x == 0.25 and panel.reset_y == 0.5)
@@ -193,7 +196,17 @@ assert(pins.prune() and #pins.list() == 2 and c.value == 0.4)
 -- A saved skin sticks, whichever skin is current at the next load.
 pins.save()
 pins.reset()
-pins.restore(song.file_name, skins)
+pins.restore(skins)
 assert(pins.panel("hardware") and not pins.panel("terminal"))
+-- A project the tool keeps nothing for stays untouched, even with an XY on
+-- show; the first thing worth keeping is stored.
+song.file_name, song.tool_data = "", nil
+pins.reset()
+pins.restore(skins)
+local fresh = pins.create_panel("hardware")
+assert(#pins.list() == 0 and song.tool_data == nil)
+fresh.x = 0.25
+pins.save()
+assert(song.tool_data:find("\nxy%-pad\t1\t0.25\t0.5$"))
 print("XY mapping, capture, per-axis writes, quantum, reversed/equal ranges, auto reset, jumps, "
-  .. "follow, restore, skins and source cleanup passed")
+  .. "follow, restore, skins, song storage and source cleanup passed")

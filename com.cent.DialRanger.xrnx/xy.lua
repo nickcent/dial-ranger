@@ -136,21 +136,21 @@ local function number(value)
   return ("%.17g"):format(value)
 end
 
--- Extra tagged records keep legacy pin and panel records intact.
-function M.save(file, out, panels, pins)
+-- Appends this module's tagged records for the pads and their mappings.
+function M.save(out, panels, pins)
   for _, panel in ipairs(panels) do
     if panel.x or panel.y then
-      out[#out + 1] = table.concat({file, "xy-pad", panel.id,
+      out[#out + 1] = table.concat({"xy-pad", panel.id,
         number(panel.x or 0.5), number(panel.y or 0.5)}, "\t")
     end
     if panel.auto_reset or panel.reset_x or panel.reset_y then
-      out[#out + 1] = table.concat({file, "xy-reset", panel.id, panel.auto_reset and 1 or 0,
+      out[#out + 1] = table.concat({"xy-reset", panel.id, panel.auto_reset and 1 or 0,
         number(panel.reset_x or 0.5), number(panel.reset_y or 0.5)}, "\t")
     end
     for i = 1, M.slots do
       local slot = panel.slots and panel.slots[i]
       if slot then
-        out[#out + 1] = table.concat({file, "xy-slot", panel.id, i, number(slot.x), number(slot.y)}, "\t")
+        out[#out + 1] = table.concat({"xy-slot", panel.id, i, number(slot.x), number(slot.y)}, "\t")
       end
     end
   end
@@ -159,7 +159,7 @@ function M.save(file, out, panels, pins)
       for _, index in ipairs(source.params) do
         local m = source.maps[index]
         if m then
-          out[#out + 1] = table.concat({file, "xy-range", source.panel.id,
+          out[#out + 1] = table.concat({"xy-range", source.panel.id,
             source.track_index, source.device_index, index, m.axis,
             number(m.low), number(m.high), escape(m.low_text), escape(m.high_text),
             number(m.scaling or scaling.linear)}, "\t")
@@ -180,27 +180,25 @@ local function coordinate(text)
   if n and n >= 0 and n <= 1 then return n end
 end
 
-function M.restore(file, records, panels_by_id, pins)
+function M.restore(records, panels_by_id, pins)
   for line in records:gmatch("[^\n]+") do
-    local project, id, x, y = line:match("^([^\t]*)\txy%-pad\t(%d+)\t([^\t]+)\t([^\t]+)$")
+    local id, x, y = line:match("^xy%-pad\t(%d+)\t([^\t]+)\t([^\t]+)$")
     local panel = panels_by_id[id]
-    if project == file and panel then
+    if panel then
       x, y = coordinate(x), coordinate(y)
       if x and y then panel.x, panel.y = x, y end
     end
     local enabled
-    project, id, enabled, x, y =
-      line:match("^([^\t]*)\txy%-reset\t(%d+)\t([01])\t([^\t]+)\t([^\t]+)$")
+    id, enabled, x, y = line:match("^xy%-reset\t(%d+)\t([01])\t([^\t]+)\t([^\t]+)$")
     panel = panels_by_id[id]
-    if project == file and panel then
+    if panel then
       x, y = coordinate(x), coordinate(y)
       if x and y then panel.auto_reset, panel.reset_x, panel.reset_y = enabled == "1", x, y end
     end
     local slot
-    project, id, slot, x, y =
-      line:match("^([^\t]*)\txy%-slot\t(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)$")
+    id, slot, x, y = line:match("^xy%-slot\t(%d+)\t(%d+)\t([^\t]+)\t([^\t]+)$")
     panel = panels_by_id[id]
-    if project == file and panel then
+    if panel then
       slot, x, y = tonumber(slot), coordinate(x), coordinate(y)
       if x and y and slot >= 1 and slot <= M.slots then
         panel.slots = panel.slots or {}
@@ -208,10 +206,10 @@ function M.restore(file, records, panels_by_id, pins)
       end
     end
     local track, device, index, axis, low, high, low_text, high_text, curve
-    project, id, track, device, index, axis, low, high, low_text, high_text, curve =
-      line:match("^([^\t]*)\txy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)\t?([^\t]*)$")
+    id, track, device, index, axis, low, high, low_text, high_text, curve =
+      line:match("^xy%-range\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([xy])\t([^\t]+)\t([^\t]+)\t([^\t]*)\t([^\t]*)\t?([^\t]*)$")
     panel = panels_by_id[id]
-    if project == file and panel then
+    if panel then
       low, high, curve = finite(low), finite(high), finite(curve)
       for _, source in ipairs(pins) do
         if low and high and source.panel == panel and source.track_index == tonumber(track)

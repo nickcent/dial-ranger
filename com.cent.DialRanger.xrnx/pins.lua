@@ -1,5 +1,5 @@
 -- Pin model: which devices/parameters are pinned, index remapping when the
--- song structure changes, and persistence per project file.
+-- song structure changes, and persistence inside the project file.
 -- UI-free: dashboard.lua listens through M.on_change.
 --
 -- one pin = one card
@@ -20,27 +20,23 @@ local M = {}
 local pins = {}
 local panels = {}
 local listener = nil
+local imported = false -- this song's records came from the old preferences
 
 -- song-level notifier bookkeeping
 local tracks_handler = nil           -- fn registered on song.tracks_observable
 local device_handlers = {}           -- { {obs = devices_observable, fn = fn}, ... }
 
--- persistence
-local prefs = renoise.Document.create("PinnedDevicesPreferences") {
+-- Tool preferences hold the user's taste, not the project's. `pins` is the
+-- pre-1.0 store that stored_records imports from.
+local prefs = renoise.Document.create("DialRangerPreferences") {
   pins = "",
-  skin = "terminal",
+  skin = "", -- theme.lua picks the first skin
   folded = false,
 }
 renoise.tool().preferences = prefs
 
 local function song()
   return renoise.song()
-end
-
-local function current_file()
-  local f = song().file_name
-  if f == nil or f == "" then return nil end -- UNTESTED (U7): unsaved song => ""
-  return f
 end
 
 -- ---------------------------------------------------------------------------
@@ -69,33 +65,64 @@ local function decode_friction(field)
   end
   return values
 end
-function M.save()
-  local file = current_file()
-  if not file then return end
-  local out = {}
-  for line in prefs.pins.value:gmatch("[^\n]+") do
-    local f = line:match("^([^\t]*)\t")
-    if f and f ~= file then out[#out + 1] = line end
+
+-- The XYs and pins live in the project file, in the song's tool data: one
+-- tab-separated record per line under this header.
+local HEADER = "dial-ranger\t1"
+
+-- An XY with nothing set is not worth a record; the window makes a new one.
+local function holds_anything(panel)
+  if panel.x or panel.y or panel.auto_reset or panel.reset_x or panel.reset_y then return true end
+  if panel.slots and next(panel.slots) then return true end
+  for _, p in ipairs(pins) do
+    if p.panel == panel then return true end
   end
+  return false
+end
+
+function M.save()
+  local out = {HEADER}
   for _, panel in ipairs(panels) do
-    out[#out + 1] = table.concat({file, "panel", panel.id, panel.skin}, "\t")
+    if holds_anything(panel) then
+      out[#out + 1] = table.concat({"panel", panel.id, panel.skin}, "\t")
+    end
   end
   for _, p in ipairs(pins) do
     local fields = {
-      file, tostring(p.track_index), tostring(p.device_index),
+      tostring(p.track_index), tostring(p.device_index),
       p.device_name, p.mode, table.concat(p.params, ","), encode_friction(p),
     }
     if p.panel then fields[#fields + 1] = p.panel.id end
     out[#out + 1] = table.concat(fields, "\t")
   end
-  xy.save(file, out, panels, pins)
-  prefs.pins.value = table.concat(out, "\n")
+  xy.save(out, panels, pins)
+  local s = song()
+  -- A project the tool has nothing to keep for stays untouched.
+  if #out == 1 and s.tool_data == nil and not imported then return end
+  local data = table.concat(out, "\n")
+  if s.tool_data ~= data then s.tool_data = data end
 end
 
--- Loads the panels stored for `file`. Each keeps its skin. Panels saved
--- before skins chose the XY, when they had a colour and a name instead, take
--- the free skins in `skins` order; any left over are dropped.
-local function restore_panels(file, skins)
+-- This song's records. Before 1.0 the tool preferences held them, keyed by
+-- the project's file path; a song without tool data takes those, and the
+-- next save writes them into the song.
+local function stored_records()
+  local s = song()
+  imported = false
+  if s.tool_data then return s.tool_data end
+  local found = {}
+  for line in prefs.pins.value:gmatch("[^\n]+") do
+    local project, record = line:match("^([^\t]+)\t(.*)$")
+    if project == s.file_name then found[#found + 1] = record end
+  end
+  imported = #found > 0
+  return table.concat(found, "\n")
+end
+
+-- Loads the panels in `records`. Each keeps its skin. Panels saved before
+-- skins chose the XY, when they had a colour and a name instead, take the
+-- free skins in `skins` order; any left over are dropped.
+local function restore_panels(records, skins)
   local by_id, free, unplaced = {}, {}, {}
   for _, key in ipairs(skins) do free[key] = true end
   local function adopt(id, skin)
@@ -104,9 +131,9 @@ local function restore_panels(file, skins)
     by_id[id] = panel
     panels[#panels + 1] = panel
   end
-  for line in prefs.pins.value:gmatch("[^\n]+") do
-    local project, id, rest = line:match("^([^\t]+)\tpanel\t(%d+)\t(.+)$")
-    if project == file then
+  for line in records:gmatch("[^\n]+") do
+    local id, rest = line:match("^panel\t(%d+)\t(.+)$")
+    if id then
       if free[rest] then adopt(id, rest) else unplaced[#unplaced + 1] = id end
     end
   end
@@ -118,15 +145,15 @@ local function restore_panels(file, skins)
   return by_id
 end
 
--- Appends pins stored for `file`; silent (no save, no listener). `skins`
--- lists every skin key in order.
-function M.restore(file, skins)
-  if file == nil or file == "" then return end
-  local by_id = restore_panels(file, skins)
-  for line in prefs.pins.value:gmatch("[^\n]+") do
-    local f, t, d, name, mode, plist, friction, panel_id =
-      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)\t?(%d*)$")
-    if f == file then
+-- Appends the pins stored with the song; silent (no save, no listener).
+-- `skins` lists every skin key in order.
+function M.restore(skins)
+  local records = stored_records()
+  local by_id = restore_panels(records, skins)
+  for line in records:gmatch("[^\n]+") do
+    local t, d, name, mode, plist, friction, panel_id =
+      line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?([^\t]*)\t?(%d*)$")
+    if t then
       local ti, di = tonumber(t), tonumber(d)
       if (panel_id == "" or by_id[panel_id]) and ti and di and name ~= "" and (mode == "device" or mode == "params") then
         local params = {}
@@ -145,7 +172,7 @@ function M.restore(file, skins)
       end
     end
   end
-  xy.restore(file, prefs.pins.value, by_id, pins)
+  xy.restore(records, by_id, pins)
 end
 
 -- ---------------------------------------------------------------------------

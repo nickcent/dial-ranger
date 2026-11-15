@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <RenoiseScriptingTool doc_version="0">
   <ApiVersion>6</ApiVersion>
-  <Id>com.cent.PinnedDevices</Id>
+  <Id>com.cent.DialRanger</Id>
   <Version>0.11</Version>
   <Author>nickcent</Author>
   <Name>Dial Ranger</Name>
